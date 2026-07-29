@@ -44,6 +44,8 @@ Cache-Control: public, s-maxage=60, max-age=0
 
 Consequences: zero invalidation cost at any scale; no invalidation call to retry, queue, or fail; and the system is **self-healing** — a missed `active`-flag write corrects itself within a minute rather than leaving a lapsed Page live indefinitely. Invalidation remains available for **rare exceptional events only** (abuse takedown, DMCA), whose volume sits well inside the free 1,000 paths/month. **ADR-0010** names the sole trigger: setting `suspendedAt` on a Page invalidates that one path, so a takedown is immediate rather than waiting out the TTL.
 
+**Amended by ADR-0012 — a second TTL tier.** Static routes (`/`, `/terms`, `/privacy`, `/robots.txt`, `/og-card.png`) are emitted at **`s-maxage=300`**; Pages stay at 60. `Cache-Control` is a *response* header, so the same origin varies TTL per route on the same behavior — no new behavior, no new cache policy. Five minutes is short enough that a copy fix never needs an invalidation, so **the sole trigger above remains sole**; it is chosen for the front door's cold-start exposure, not for cost (the difference is ~$0.20/M requests).
+
 ### Negative path
 
 Both "no such Username" and "Page not `active`" return **404**, cached at the same `s-maxage=60`, with **different bodies**:
@@ -55,6 +57,8 @@ Both "no such Username" and "Page not `active`" return **404**, cached at the sa
 | Username reserved | Neutral body, no CTA |
 
 The unclaimed body turns stray traffic into an acquisition funnel; the lapsed body avoids publicly outing a creator as unpaid. Matching the live TTL means a freshly claimed Username goes live within 60 seconds of signup.
+
+**Clarified by ADR-0012.** The "Username reserved" row was written before ADR-0007 built the reserved `Set`, and nothing ever said the renderer consults it — so in practice reserved names fell to the *unclaimed* body. ADR-0012 wires the check (a set-membership test after the static route table misses), and sends `/login`, `/signup` and `/pricing` to **302 redirects** instead, since a 404 is the wrong answer for a name a visitor typed on purpose.
 
 ### Rendered artifact
 
@@ -83,6 +87,10 @@ This ADR fixes only the constraint. The mechanism — tracking pixel vs inline b
 | `/*` **(default)** | **page renderer Lambda** | `s-maxage=60` |
 
 The default behavior's cache policy forwards **no cookies**, so dashboard session cookies never fragment the public cache. One distribution, one certificate, one deploy.
+
+**Amended by ADR-0012 — no new behavior.** The default `/*` behavior also serves a **static route table** from `core` (`/`, `/terms`, `/privacy`, `/robots.txt`, `/og-card.png`, plus redirects for `/login`, `/signup`, `/pricing`), checked *before* the username lookup. The root is not routable away from this behavior — CloudFront treats a leading slash as implied, so a bare `/` is the empty pattern, and the default pattern `*` cannot be changed. The behavior list stays at six.
+
+**Also amended by ADR-0012:** `www.ourapp.com` is served by a **separate** distribution (S3 website-redirect bucket → apex), *not* an alias here — adding it as an alias would require `Host` in this behavior's cache key, fragmenting every cached Page across two hostnames.
 
 ## Considered options
 

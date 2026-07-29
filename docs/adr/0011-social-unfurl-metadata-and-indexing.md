@@ -127,7 +127,7 @@ The price: a creator who wants link equity flowing to their own site does not ge
 |---|---|---|
 | `/i/*` (unfurl image) | **page renderer Lambda** | `s-maxage=60` — added by ADR-0011 |
 
-`/og-card.png` and `/robots.txt` are static files on the existing SPA origin; their behavior wiring is S2's.
+~~`/og-card.png` and `/robots.txt` are static files on the existing SPA origin; their behavior wiring is S2's.~~ **Amended by ADR-0012:** both are **renderer routes**, served from the static route table in `core` off the existing `/*` catch-all — no behavior wiring at all. The root is not routable away from the default behavior, so the renderer is answering the other three root paths regardless, and splitting two of five across a second origin buys nothing. The *contents* decided here are unchanged.
 
 Note this does **not** revisit ADR-0009's "one request per page view" — `/i/*` is never fetched by a browser rendering the Page, only by a crawler unfurling a link to it.
 
@@ -149,5 +149,5 @@ Note this does **not** revisit ADR-0009's "one request per page view" — `/i/*`
 - **Every outbound link becomes `nofollow`** — permanently, in the sense that reversing it later invites exactly the traffic we are trying not to attract.
 - **Click counts get a structural defence** they did not have when ADR-0008 was written, which is a strict improvement to a number ADR-0008 could only call approximate.
 - **The Page item grows by two ints and loses 160+ characters of bio range.** Both are noise against the 24 KB avatar blob already there.
-- **Two files at the root are now owed by S2** (`robots.txt`, `og-card.png`) that S2 did not know about when it was written.
+- ~~**Two files at the root are now owed by S2** (`robots.txt`, `og-card.png`) that S2 did not know about when it was written.~~ **Settled by ADR-0012:** both are rows in the renderer's static route table, at `s-maxage=300`.
 - **The brand card is a design asset nobody has made yet** — a build-checklist item, not a decision.
