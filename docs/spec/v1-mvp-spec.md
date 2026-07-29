@@ -8,7 +8,7 @@ status: draft
 - **Ticket:** [S1 — Assemble the v1 spec](https://github.com/topeomot2/all-links/issues/17)
 - **Map:** [Wayfinder map: v1 spec for a cheap serverless link-in-bio](https://github.com/topeomot2/all-links/issues/1)
 - **Vocabulary:** `CONTEXT.md` — Account, Page, Link, Username, Claim, Hold, Reserved name, Rename, Theme, Subscription, Suspension
-- **Sources:** ADR-0001 … ADR-0010 in `docs/adr/`
+- **Sources:** ADR-0001 … ADR-0013 in `docs/adr/`
 
 This is a **synthesis**, not a new decision. It folds the ten ADRs and the map's locked scope into one document a builder can work from without reading the decision history. Every "why" is one link away; nothing here overrides an ADR.
 
@@ -163,7 +163,7 @@ This is not a shortcut. Invalidating per edit costs **~$250/mo at 10k Accounts e
 | `/i/*` (unfurl image — ADR-0011) | **renderer Lambda** (FURL + OAC) | `s-maxage=60` |
 | `/*` **(default)** | **renderer Lambda** (FURL + OAC) | `s-maxage=60`, **no cookies forwarded** |
 
-> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/terms`, `/privacy` and the marketing routes have **no behavior yet** — see [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site). `/robots.txt` and `/og-card.png` ([§6.7](#67-unfurl-metadata-and-indexing--adr-0011)) are static files needing the same wiring.
+> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/`, `/terms`, `/privacy`, `/robots.txt` and `/og-card.png` need **no behavior at all** — **ADR-0013** serves them from a static route table in `core`, checked by the renderer before the username lookup, at `s-maxage=300`. See [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site), now resolved. `www.ourapp.com` is a **separate** distribution (S3 website-redirect → apex), deliberately not an alias here — an alias would put `Host` in this behavior's cache key.
 
 The default behavior forwards **no cookies**, so dashboard sessions can never fragment the public cache. This is why the dashboard uses a `Bearer` token and not a session cookie. One distribution, one certificate, one deploy.
 
@@ -176,7 +176,8 @@ packages/
   counter/     Lambda — /px views + /r/* click redirects
   dashboard/   React + Vite SPA → static assets               (/app/*)
   core/        shared TS — data access, domain types, themes,
-                 username regex + reserved-name Set, avatar validation
+                 username regex + reserved-name Set, avatar validation,
+                 STATIC_ROUTES (ADR-0013; the reserved Set derives from it)
 infra/         AWS CDK app — one distribution, table, user pool, alarms
 ```
 
@@ -276,7 +277,7 @@ Stating the rule by **ordering** rather than by event also covers the rare recov
 
 `a`, `px` and `r` need no entry — the 3-character minimum excludes them structurally. **No profanity list**: false positives are endemic (the Scunthorpe problem), the list needs perpetual maintenance, and takedown is already the lever.
 
-> **`core` owns the reserved Set and the regex. Adding a root route means adding its reservation in the same PR.**
+> **`core` owns the reserved Set and the regex.** ~~Adding a root route means adding its reservation in the same PR.~~ **ADR-0013** derives the Set instead — `RESERVED = BASE_RESERVED ∪ keys(STATIC_ROUTES)` — so adding a root route reserves its name in the same expression. The rule is retired, not delegated.
 
 ### 6.3 Holds and reclaim — ADR-0007, amended by 0010
 
@@ -321,10 +322,12 @@ Both "no such Username" and "not visible" return **404**, cached at the same `s-
 |---|---|
 | Username unclaimed | "`/jane` is available — claim it", with a signup CTA |
 | Page inactive (lapsed) | Neutral "this page isn't active" — **never names billing** |
-| Username reserved | Neutral, no CTA |
+| Username reserved | Neutral, no CTA — **ADR-0013**: fires on a `core` reserved-Set hit after the static route table misses |
 | Page suspended | Reuses the neutral inactive body |
 
 The unclaimed body turns stray traffic into an acquisition funnel; the lapsed body avoids publicly outing a creator as unpaid. Matching the live TTL means a freshly claimed Username goes live within 60 seconds.
+
+> **ADR-0013** sends `/login` and `/signup` to **302 `/app/`**, and `/pricing` to **302 `/#pricing`**, rather than any 404 body — a name a visitor typed on purpose deserves a destination. `about`, `blog`, `docs` and `help` get the reserved body.
 
 ### 6.7 Unfurl metadata and indexing — ADR-0011
 
@@ -355,7 +358,7 @@ This is not ADR-0009 reversed: every mechanism ADR-0009 removed (key rotation, o
 
 **Not in v1:** a sitemap (build-later — it is also the most attractive artifact we could hand an SEO spammer), and a per-Page "hide from search" toggle (ruled out of scope).
 
-**Owed by [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site) / [S2](https://github.com/topeomot2/all-links/issues/21):** routing for `/robots.txt` and `/og-card.png`, both static files on the SPA origin. **Also amends §8's takedown:** suspension must invalidate `/i/<username>` alongside `/<username>`.
+**Settled by ADR-0013 / [S2](https://github.com/topeomot2/all-links/issues/21):** `/robots.txt` and `/og-card.png` are **renderer routes** in `core`'s static route table, not files on the SPA origin — see [§5](#5-architecture) and [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site). **Also amends §8's takedown:** suspension must invalidate `/i/<username>` alongside `/<username>`.
 
 ---
 
@@ -496,13 +499,15 @@ Work the map deliberately kept out of decision tickets. **None of these are deci
 | 4 | **SES production access** + SPF/DKIM/DMARC on the sending domain. Passwordless puts email on the critical login path. | §6.1 |
 | 5 | **An inbox for `abuse@ourapp.com`** — SES receiving or a forwarding alias. The only report intake channel. | §8 |
 | 6 | **Google Safe Browsing API key** and quota check. | §8 |
-| 7 | **Author `/terms`** (with the AUP the suspend lever enforces) **and `/privacy`** (stating the no-visitor-IPs commitment). | §8 |
+| 7 | **Author `/terms`** (with the AUP the suspend lever enforces), **`/privacy`** (stating the no-visitor-IPs commitment) **and the `/` landing page** — pitch, pricing, CTA to `/app/`. All three are components in the renderer (ADR-0013); **legal review of Terms and Privacy before launch.** | §8, §5 |
 | 8 | **Register a DMCA designated agent** with the US Copyright Office — a $6 filing, and the precondition for safe harbour on a UGC product selling into the US. | §8 |
 | 9 | **Size reserved concurrency per Lambda**, and set the CloudWatch/Budgets thresholds that trip the WAF escalation. Sizing, not deciding. | §8 |
 | 10 | **Design the 4–6 preset Themes** (accent color, type, layout, monogram treatment) as CSS in `core`. | §6.5 |
 | 11 | **Write the suspend runbook script** — DynamoDB write + MoR cancel + CloudFront invalidation (**both paths** — §6.7) in one command, so a 2am takedown is one command rather than three consoles. | §8 |
 | 12 | **Design `/og-card.png`** — a square brand card, the `og:image` for every Page without an avatar. A design asset, not a decision. | §6.7 |
 | 13 | **Check a live Page in Meta's sharing debugger** once a domain exists. A missing image is the named trigger for §6.7's pre-decided JPEG-companion escalation. | §6.7 |
+| 14 | **`www` certificate SAN, the S3 website-redirect bucket and its own distribution** in CDK (ADR-0013). Deliberately not an alias on the main distribution — that would put `Host` in the public cache key. | §5 |
+| 15 | **Keep the landing page's `$20/yr` / `$2.99/mo` in step with the Stripe catalogue.** ADR-0013 names this as a two-sources-of-truth watch item on the product's headline number, with no mechanism enforcing it. | §2, §5 |
 
 **Test explicitly** (called out in the ADRs as rare-but-real): the **paid-but-nameless recovery path**, where the billing webhook's `ConditionCheck` loses the race and the next successful claim creates the Page.
 
@@ -510,7 +515,7 @@ Work the map deliberately kept out of decision tickets. **None of these are deci
 
 ## 11. Unresolved on assembly
 
-Read individually, every ADR is consistent. Read **together**, six things contradict or dangle. Each is stated with what the ADRs actually say, and a recommendation — **none of these are decided here**; §11.1, §11.2 and §11.5 need a call before or during the build.
+Read individually, every ADR is consistent. Read **together**, six things contradict or dangle. Each is stated with what the ADRs actually say, and a recommendation — **none of these are decided here**; §11.1 and §11.5 need a call before or during the build. **§11.2 is now resolved by ADR-0013** and is kept below for the record.
 
 ### 11.1 The reclaim condition is not expressible as written
 
@@ -526,7 +531,11 @@ attribute_not_exists(PK) OR (holder inactive AND claimedAt < now - 7d)
 
 Note this makes the contended claim a **four-item transaction**, and the harvest path must handle the case where the holder has **no Page at all** (claimed but never paid — the common case), where the `ConditionCheck` has no item to check.
 
-### 11.2 Nothing serves `/terms`, `/privacy`, or the marketing site
+### 11.2 Nothing serves `/terms`, `/privacy`, or the marketing site — **RESOLVED by ADR-0013**
+
+> **Resolved.** v1 ships **three pages** — `/` (pricing inline), `/terms`, `/privacy` — served by the renderer from a **static route table in `core`**, checked before the username lookup, at **`s-maxage=300`**. `/robots.txt` and `/og-card.png` join them. **Zero new behaviors, zero new origins.** The recommendation below was taken, and the trade it framed as even turned out not to be: **CloudFront cannot route `/` away from the default behavior** (a leading slash is implied, so a bare `/` is the empty pattern, and the default `*` cannot be changed), so the static-origin alternative needed a rewrite function on top and split the mechanism around the most important page anyway. ADR-0013 also settles the seven reserved-but-unrouted names (`/login`, `/signup` → 302 `/app/`; `/pricing` → 302 `/#pricing`; `about`/`blog`/`docs`/`help` → a reserved-404 that does not offer to sell the name), **derives the denylist from the route table** so ADR-0007's standing rule is retired, and routes `www` via a separate redirect distribution. See `docs/adr/0013-root-marketing-and-legal-routes.md`.
+
+*Original text:*
 
 ADR-0010 says `/terms` and `/privacy` are "static objects served at the root" and adds them to the reserved denylist. **The denylist only stops a creator claiming those usernames — it does not route the path.** ADR-0004's default behavior is the renderer Lambda as catch-all, so today `/terms` renders a 404 "this name is available" placeholder.
 

@@ -59,6 +59,8 @@ Of the live CloudFront behaviours (ADR-0004: `/api/*`, `/app/*`, `/a/*`, `/px`),
 
 **No profanity list.** False positives are endemic (the Scunthorpe problem), the list needs perpetual maintenance, and abuse already has a lever in Page takedown.
 
+**Amended by ADR-0013 — the Set is now derived, not maintained.** `RESERVED = BASE_RESERVED ∪ keys(STATIC_ROUTES)`, both in `core`. Bucket 1 above splits: names with a live route (`terms`, `privacy`, `login`, `signup`, `pricing`) come from the route table; names reserved ahead of need (`about`, `blog`, `docs`, `help`, `status`, `contact`, …) stay in `BASE_RESERVED`, as do buckets 2 and 3. Adding a route reserves its name in the same expression, which **retires the standing rule** below.
+
 ### Holds and reclaim
 
 A claim writes **only** the Username item — `{ ownerAccountId, claimedAt }`:
@@ -131,7 +133,7 @@ Applies the **same 7-day staleness rule** as the claim. Otherwise the UI reports
 
 **Downstream constraints this imposes**
 
-- `core` owns the reserved `Set` and the username regex; adding a root route means adding its reservation in the same PR.
+- ~~`core` owns the reserved `Set` and the username regex; adding a root route means adding its reservation in the same PR.~~ **Retired by ADR-0013:** `core` still owns both, but the reserved `Set` is derived from the static route table, so adding a root route reserves its name structurally — there is no longer a rule to remember.
 - Account gains `lastRenamedAt`; the Username item carries `claimedAt` (ADR-0003 listed only `ownerAccountId`).
 - Post-auth routing must resolve four states: active → dashboard; inactive with no username → claim; inactive holding a username → resume checkout; inactive whose hold was reclaimed → claim, with a notice.
 - **Rate-limiting the OTP-send and claim endpoints** (SES cost, username enumeration) is not settled here — it belongs with the abuse/takedown story.
