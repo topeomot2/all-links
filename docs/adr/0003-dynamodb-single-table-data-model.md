@@ -28,6 +28,8 @@ v1 stores everything in one DynamoDB table (ADR-0001). The hot path is rendering
 
 **Access patterns:** public render = 1 GSI1 query; dashboard = `Query PK=ACCOUNT#<id>`; Link CRUD/reorder = single-item writes (reorder updates one `rank`); click/view = atomic `ADD`; Subscription gate = get Account item.
 
+**Public visibility gate** (amended by **ADR-0010**) = `active && !suspendedAt`. The Page item gains **`suspendedAt`** — a moderation attribute, orthogonal to `active` and never written by the billing webhook — and both attributes arrive in the same GSI1 query, so the check costs no extra read.
+
 **Username** is changeable: a rename is a transaction (claim new Username item, release old, rewrite `GSI1PK` across Page + all Link items). Old URLs 404 — no redirect table in v1.
 
 ## Considered options

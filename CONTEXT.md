@@ -44,4 +44,8 @@ _Avoid_: Skin, Style
 The billing state of an Account — its lifecycle status (trialing, active, past_due, canceled), plan, and merchant-of-record references.
 _Avoid_: Membership
 
+**Suspension**:
+A moderation state on a Page — set by a takedown, recorded as `suspendedAt`, and deliberately **not** a Subscription state. A Page is publicly visible only when it is both `active` (Subscription is good) and not suspended; the billing webhook never writes it, so paying again does not revive a suspended Page.
+_Avoid_: Ban, Deactivation, Disabled
+
 > "Creator" is marketing language for the human behind an Account — avoid it as a model term.
