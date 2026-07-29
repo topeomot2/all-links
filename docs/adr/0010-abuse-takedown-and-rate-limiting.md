@@ -2,11 +2,11 @@
 status: accepted
 ---
 
-# ADR-0009 — Abuse, takedown & rate limiting
+# ADR-0010 — Abuse, takedown & rate limiting
 
 - **Date:** 2026-07-29
 - **Decision ticket:** [A8 — Abuse, takedown & rate limiting](https://github.com/topeomot2/all-links/issues/16)
-- **Builds on:** ADR-0001 (AWS serverless, Budgets alarm), ADR-0002 (card up front, lapse policy), ADR-0003 (single-table model, mirrored `active` flag), ADR-0004 (CloudFront serving, invalidation policy), ADR-0005 (Cognito passwordless OTP over SES), ADR-0006 (Lambdas behind Function URLs + OAC, CDK), ADR-0007 (username claim, lazy harvest, denylist), ADR-0008 (`/px` and `/r/*`, no WAF)
+- **Builds on:** ADR-0001 (AWS serverless, Budgets alarm), ADR-0002 (card up front, lapse policy), ADR-0003 (single-table model, mirrored `active` flag), ADR-0004 (CloudFront serving, invalidation policy), ADR-0005 (Cognito passwordless OTP over SES), ADR-0006 (Lambdas behind Function URLs + OAC, CDK), ADR-0007 (username claim, lazy harvest, denylist), ADR-0008 (`/px` and `/r/*`, no WAF), ADR-0009 (avatars inline on the Page item — the upload abuse boundary sits in the api Lambda and is settled there, not here)
 - **Amends:** ADR-0003 (Page gains `suspendedAt`), ADR-0004 (names the trigger for its reserved invalidation path), ADR-0007 (held-handle attribute on the Account, delete-on-reclaim, harvest skips suspended Pages, denylist gains `terms`/`privacy`)
 - **Vocabulary:** see `CONTEXT.md` (Account, Page, Link, Username, Subscription, Suspension)
 

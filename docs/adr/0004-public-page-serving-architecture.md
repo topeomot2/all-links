@@ -42,7 +42,7 @@ Cache-Control: public, s-maxage=60, max-age=0
 
 **No routine invalidation.** A write path (edit, reorder, theme change, rename, billing webhook) writes DynamoDB and stops — it never calls CloudFront. The public Page catches up within 60 seconds.
 
-Consequences: zero invalidation cost at any scale; no invalidation call to retry, queue, or fail; and the system is **self-healing** — a missed `active`-flag write corrects itself within a minute rather than leaving a lapsed Page live indefinitely. Invalidation remains available for **rare exceptional events only** (abuse takedown, DMCA), whose volume sits well inside the free 1,000 paths/month. **ADR-0009** names the sole trigger: setting `suspendedAt` on a Page invalidates that one path, so a takedown is immediate rather than waiting out the TTL.
+Consequences: zero invalidation cost at any scale; no invalidation call to retry, queue, or fail; and the system is **self-healing** — a missed `active`-flag write corrects itself within a minute rather than leaving a lapsed Page live indefinitely. Invalidation remains available for **rare exceptional events only** (abuse takedown, DMCA), whose volume sits well inside the free 1,000 paths/month. **ADR-0010** names the sole trigger: setting `suspendedAt` on a Page invalidates that one path, so a takedown is immediate rather than waiting out the TTL.
 
 ### Negative path
 
