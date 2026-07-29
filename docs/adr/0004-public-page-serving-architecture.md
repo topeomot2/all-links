@@ -77,7 +77,8 @@ This ADR fixes only the constraint. The mechanism — tracking pixel vs inline b
 | `/api/*` | app Lambda | `no-store` |
 | `/app/*` | dashboard | `no-store` — **amended by ADR-0006**: shell `no-store`, hashed assets immutable |
 | `/a/*` | S3 (avatars) | immutable, long TTL |
-| `/px` (counting endpoint) | counter Lambda | `no-store` |
+| `/px` (counting endpoint) | counter Lambda | `no-store` — **ADR-0008**: 1×1 pixel, `u` query string forwarded |
+| `/r/*` (click redirect) | counter Lambda | `no-store` — **added by ADR-0008** |
 | `/*` **(default)** | **page renderer Lambda** | `s-maxage=60` |
 
 The default behavior's cache policy forwards **no cookies**, so dashboard session cookies never fragment the public cache. One distribution, one certificate, one deploy.
@@ -99,11 +100,11 @@ The default behavior's cache policy forwards **no cookies**, so dashboard sessio
 **Accepted tradeoffs**
 - **Cold start on a cache miss** (~200–500 ms). Accepted; low-traffic Pages miss often, but the absolute latency is acceptable for a static-feeling document.
 - **Edit → public visibility takes up to 60 s.** The dashboard previews directly from DynamoDB, so the editing experience is instant; only the public URL lags.
-- **The reserved-name denylist must track every app route forever** — currently `api`, `app`, `a`, `px`, plus marketing routes.
+- **The reserved-name denylist must track every app route forever** — currently `api`, `app`, `a`, `px`, `r` (ADR-0008), plus marketing routes.
 - Theme CSS is re-sent with every document rather than shared-cached (kilobytes, gzipped).
 
 **Constraints this imposes downstream**
-- **A4 (analytics counting):** page views must be counted on the uncached `/px` behavior, not in the renderer. A4 chooses pixel vs beacon, batching, and bot filtering.
+- **A4 (analytics counting):** page views must be counted on the uncached `/px` behavior, not in the renderer. A4 chooses pixel vs beacon, batching, and bot filtering. **Resolved by ADR-0008** — a 1×1 pixel on `/px`, clicks via a new `/r/*` server-side redirect behavior (a sixth behavior, added to the table above), direct best-effort atomic `ADD` with no batching, and bot filtering limited to free heuristics.
 - **A5 (framework + IaC):** the framework must server-render self-contained HTML for public Pages (no SPA); IaC must express one distribution with the five behaviors above and their distinct cache policies, including the no-cookie policy on the default behavior. **Resolved by ADR-0006** — no meta-framework, Preact `render-to-string` in the renderer Lambda, AWS CDK for the distribution. ADR-0006 amends the `/app/*` row: the dashboard is a static SPA, so its hashed assets are immutable and only the HTML shell is `no-store`.
 - **Onboarding flow:** the reserved denylist is now partly determined by this routing table.
 - **Avatar delivery** via `/a/*` exposes an egress and abuse vector — upload size/format limits and resize-on-upload are still to be decided.
