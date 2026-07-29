@@ -20,13 +20,15 @@ v1 stores everything in one DynamoDB table (ADR-0001). The hot path is rendering
 | Item | Keys | Notable attributes |
 |---|---|---|
 | **Account** (private) | `SK=ACCOUNT` | email, auth subject; Subscription block: `status`, `plan`, `trial_end`, `current_period_end`, `mor_customer_id`, `mor_subscription_id`. **No `GSI1PK`** → never on the public path. |
-| **Page** (public) | `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | username, displayName, bio, `avatarKey` (→ S3), `themeId`, `pageViewCount` (atomic `ADD`), **`active`** (mirrored visibility flag) |
+| **Page** (public) | `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | username, displayName, bio, ~~`avatarKey` (→ S3)~~ → **`avatarWebp`** (inline blob, ≤24 KB — ADR-0009), `themeId`, `pageViewCount` (atomic `ADD`), **`active`** (mirrored visibility flag) |
 | **Link** (public) | `SK=LINK#<ulid>`, `GSI1PK=USERNAME#<name>`, `GSI1SK=1#<rank>` | label, url, `rank` (fractional index), `clickCount` (atomic `ADD`) |
 | **Username** (uniqueness) | `PK=USERNAME#<name>`, `SK=USERNAME#<name>` | `ownerAccountId`; written with `attribute_not_exists` inside the signup / rename transaction |
 
 **GSI1** (public read): `GSI1PK` / `GSI1SK`, projecting **public attributes only**. A public render is a single `Query GSI1 where GSI1PK=USERNAME#<name>` → the Page (`GSI1SK=0`) followed by Links in `rank` order.
 
 **Access patterns:** public render = 1 GSI1 query; dashboard = `Query PK=ACCOUNT#<id>`; Link CRUD/reorder = single-item writes (reorder updates one `rank`); click/view = atomic `ADD`; Subscription gate = get Account item.
+
+**Public visibility gate** (amended by **ADR-0010**) = `active && !suspendedAt`. The Page item gains **`suspendedAt`** — a moderation attribute, orthogonal to `active` and never written by the billing webhook — and both attributes arrive in the same GSI1 query, so the check costs no extra read.
 
 **Username** is changeable: a rename is a transaction (claim new Username item, release old, rewrite `GSI1PK` across Page + all Link items). Old URLs 404 — no redirect table in v1.
 
@@ -41,4 +43,4 @@ v1 stores everything in one DynamoDB table (ADR-0001). The hot path is rendering
 - **The mirrored `active` flag on the Page item** is the load-bearing cross-cutting piece: the public read never touches the private Account item, so it can't see Subscription status. The billing webhook (ADR-0002) updates both the Account Subscription block *and* the Page `active` flag; the public path gates visibility on `active` alone. This is what makes "hide a lapsed Page" implementable without a private read — and it means **every subscription-state change must write the Page `active` flag**, or lapsed pages stay visible.
 - Username uniqueness and renames require **`TransactWriteItems`**; a rename is O(number of Links) writes (rare).
 - Reserved-username denylist is enforced in-app before the claim (contents TBD in the onboarding flow).
-- Avatars are S3 objects referenced by `avatarKey`; the upload flow is implementation detail for the build.
+- ~~Avatars are S3 objects referenced by `avatarKey`; the upload flow is implementation detail for the build.~~ **Amended by ADR-0009:** there is no avatar object. `avatarKey` becomes **`avatarWebp`** — a ≤24 KB WebP blob stored on the Page item and projected into GSI1 with the other public attributes, inlined by the renderer as a `data:` URI.

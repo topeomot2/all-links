@@ -42,7 +42,7 @@ Cache-Control: public, s-maxage=60, max-age=0
 
 **No routine invalidation.** A write path (edit, reorder, theme change, rename, billing webhook) writes DynamoDB and stops — it never calls CloudFront. The public Page catches up within 60 seconds.
 
-Consequences: zero invalidation cost at any scale; no invalidation call to retry, queue, or fail; and the system is **self-healing** — a missed `active`-flag write corrects itself within a minute rather than leaving a lapsed Page live indefinitely. Invalidation remains available for **rare exceptional events only** (abuse takedown, DMCA), whose volume sits well inside the free 1,000 paths/month.
+Consequences: zero invalidation cost at any scale; no invalidation call to retry, queue, or fail; and the system is **self-healing** — a missed `active`-flag write corrects itself within a minute rather than leaving a lapsed Page live indefinitely. Invalidation remains available for **rare exceptional events only** (abuse takedown, DMCA), whose volume sits well inside the free 1,000 paths/month. **ADR-0010** names the sole trigger: setting `suspendedAt` on a Page invalidates that one path, so a takedown is immediate rather than waiting out the TTL.
 
 ### Negative path
 
@@ -58,9 +58,9 @@ The unclaimed body turns stray traffic into an acquisition funnel; the lapsed bo
 
 ### Rendered artifact
 
-One **self-contained HTML document**: the Theme's CSS is inlined (presets are few and small), no external stylesheet, no framework runtime, and the Page renders with JavaScript disabled. The avatar is served from the **same** CloudFront distribution off S3 via `avatarKey`.
+One **self-contained HTML document**: the Theme's CSS is inlined (presets are few and small), no external stylesheet, no framework runtime, and the Page renders with JavaScript disabled. ~~The avatar is served from the **same** CloudFront distribution off S3 via `avatarKey`.~~ **Amended by ADR-0009:** the avatar is a ≤24 KB WebP blob stored on the Page item and inlined as a `data:` URI, so it ships inside the document; an avatar-less Page renders a themed CSS monogram.
 
-**Two requests per page view** (document + avatar). Nothing to hash, version, or cache-bust; a theme change is a pure server-side concern.
+~~**Two requests per page view** (document + avatar).~~ **Amended by ADR-0009: one request per page view** — the document alone, avatar included. Nothing to hash, version, or cache-bust; a theme change is a pure server-side concern.
 
 ### Counting
 
@@ -75,9 +75,10 @@ This ADR fixes only the constraint. The mechanism — tracking pixel vs inline b
 | Behavior | Origin | Caching |
 |---|---|---|
 | `/api/*` | app Lambda | `no-store` |
-| `/app/*` | dashboard | `no-store` |
-| `/a/*` | S3 (avatars) | immutable, long TTL |
-| `/px` (counting endpoint) | counter Lambda | `no-store` |
+| `/app/*` | dashboard | `no-store` — **amended by ADR-0006**: shell `no-store`, hashed assets immutable |
+| ~~`/a/*`~~ | ~~S3 (avatars)~~ | **removed by ADR-0009** — avatars inline in the document |
+| `/px` (counting endpoint) | counter Lambda | `no-store` — **ADR-0008**: 1×1 pixel, `u` query string forwarded |
+| `/r/*` (click redirect) | counter Lambda | `no-store` — **added by ADR-0008** |
 | `/*` **(default)** | **page renderer Lambda** | `s-maxage=60` |
 
 The default behavior's cache policy forwards **no cookies**, so dashboard session cookies never fragment the public cache. One distribution, one certificate, one deploy.
@@ -99,11 +100,11 @@ The default behavior's cache policy forwards **no cookies**, so dashboard sessio
 **Accepted tradeoffs**
 - **Cold start on a cache miss** (~200–500 ms). Accepted; low-traffic Pages miss often, but the absolute latency is acceptable for a static-feeling document.
 - **Edit → public visibility takes up to 60 s.** The dashboard previews directly from DynamoDB, so the editing experience is instant; only the public URL lags.
-- **The reserved-name denylist must track every app route forever** — currently `api`, `app`, `a`, `px`, plus marketing routes.
+- **The reserved-name denylist must track every app route forever** — currently `api`, `app`, `a`, `px`, `r` (ADR-0008), plus marketing routes.
 - Theme CSS is re-sent with every document rather than shared-cached (kilobytes, gzipped).
 
 **Constraints this imposes downstream**
-- **A4 (analytics counting):** page views must be counted on the uncached `/px` behavior, not in the renderer. A4 chooses pixel vs beacon, batching, and bot filtering.
-- **A5 (framework + IaC):** the framework must server-render self-contained HTML for public Pages (no SPA); IaC must express one distribution with the five behaviors above and their distinct cache policies, including the no-cookie policy on the default behavior.
+- **A4 (analytics counting):** page views must be counted on the uncached `/px` behavior, not in the renderer. A4 chooses pixel vs beacon, batching, and bot filtering. **Resolved by ADR-0008** — a 1×1 pixel on `/px`, clicks via a new `/r/*` server-side redirect behavior (a sixth behavior, added to the table above), direct best-effort atomic `ADD` with no batching, and bot filtering limited to free heuristics.
+- **A5 (framework + IaC):** the framework must server-render self-contained HTML for public Pages (no SPA); IaC must express one distribution with the five behaviors above and their distinct cache policies, including the no-cookie policy on the default behavior. **Resolved by ADR-0006** — no meta-framework, Preact `render-to-string` in the renderer Lambda, AWS CDK for the distribution. ADR-0006 amends the `/app/*` row: the dashboard is a static SPA, so its hashed assets are immutable and only the HTML shell is `no-store`.
 - **Onboarding flow:** the reserved denylist is now partly determined by this routing table.
-- **Avatar delivery** via `/a/*` exposes an egress and abuse vector — upload size/format limits and resize-on-upload are still to be decided.
+- **Avatar delivery** via `/a/*` exposes an egress and abuse vector — upload size/format limits and resize-on-upload are still to be decided. **Resolved by ADR-0009** — by deleting the vector rather than bounding it: `/a/*` and the avatar bucket are removed, the avatar becomes a ≤24 KB WebP blob on the Page item inlined as a `data:` URI, and a page view drops from two requests to one.
