@@ -75,7 +75,7 @@ This ADR fixes only the constraint. The mechanism — tracking pixel vs inline b
 | Behavior | Origin | Caching |
 |---|---|---|
 | `/api/*` | app Lambda | `no-store` |
-| `/app/*` | dashboard | `no-store` |
+| `/app/*` | dashboard | `no-store` — **amended by ADR-0006**: shell `no-store`, hashed assets immutable |
 | `/a/*` | S3 (avatars) | immutable, long TTL |
 | `/px` (counting endpoint) | counter Lambda | `no-store` |
 | `/*` **(default)** | **page renderer Lambda** | `s-maxage=60` |
@@ -104,6 +104,6 @@ The default behavior's cache policy forwards **no cookies**, so dashboard sessio
 
 **Constraints this imposes downstream**
 - **A4 (analytics counting):** page views must be counted on the uncached `/px` behavior, not in the renderer. A4 chooses pixel vs beacon, batching, and bot filtering.
-- **A5 (framework + IaC):** the framework must server-render self-contained HTML for public Pages (no SPA); IaC must express one distribution with the five behaviors above and their distinct cache policies, including the no-cookie policy on the default behavior.
+- **A5 (framework + IaC):** the framework must server-render self-contained HTML for public Pages (no SPA); IaC must express one distribution with the five behaviors above and their distinct cache policies, including the no-cookie policy on the default behavior. **Resolved by ADR-0006** — no meta-framework, Preact `render-to-string` in the renderer Lambda, AWS CDK for the distribution. ADR-0006 amends the `/app/*` row: the dashboard is a static SPA, so its hashed assets are immutable and only the HTML shell is `no-store`.
 - **Onboarding flow:** the reserved denylist is now partly determined by this routing table.
 - **Avatar delivery** via `/a/*` exposes an egress and abuse vector — upload size/format limits and resize-on-upload are still to be decided.
