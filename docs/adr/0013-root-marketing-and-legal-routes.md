@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# ADR-0012 — Root, marketing and legal routes
+# ADR-0013 — Root, marketing and legal routes
 
 - **Date:** 2026-07-29
 - **Decision ticket:** [S2 — Root, marketing and legal routes](https://github.com/topeomot2/all-links/issues/21)
@@ -87,7 +87,7 @@ A day-long TTL was rejected in both forms: **without** invalidation, a wrong pri
 
 Seven reserved names ship **unrouted**. The defect here is narrower than S1 §11.2 reported, and more characteristic: **ADR-0004's negative-path table already has a "Username reserved → neutral body, no CTA" row.** It was written *before* ADR-0007 created the reserved `Set`, and **no ADR ever said the renderer consults it.** The case was named, the data was built, and nothing joined them — so the observed behaviour is the unclaimed placeholder, and `ourapp.com/login` answers *"the name `login` is available — claim it."* That is false: it is reserved and unclaimable. (ADR-0007's "reserved and taken produce distinct error copy" governs the **dashboard availability check**, not the public 404.)
 
-ADR-0012 makes the join explicit, and adds redirects where a 404 is the wrong answer:
+ADR-0013 makes the join explicit, and adds redirects where a 404 is the wrong answer:
 
 - **`/login`, `/signup` → 302 `/app/`.** Real user intent. ADR-0007's flow begins at "landing" and never said where someone who types the obvious thing ends up.
 - **`/pricing` → 302 `/#pricing`.** The name is reserved and the content exists; it just isn't a page.

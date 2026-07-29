@@ -29,7 +29,7 @@ A Claim by an Account that has not yet paid. Lasts 7 days, after which a contend
 _Avoid_: Lock, Pending claim
 
 **Reserved name**:
-A Username no Account may ever Claim — a route, an authority word, or the brand. Distinct from *taken*, which means another Account currently holds it. Every *Static route*'s path is a Reserved name by derivation (ADR-0012); the rest are listed explicitly.
+A Username no Account may ever Claim — a route, an authority word, or the brand. Distinct from *taken*, which means another Account currently holds it. Every *Static route*'s path is a Reserved name by derivation (ADR-0013); the rest are listed explicitly.
 _Avoid_: Blocked, Banned
 
 **Static route**:
