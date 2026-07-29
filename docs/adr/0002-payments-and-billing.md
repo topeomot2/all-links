@@ -48,9 +48,11 @@ Consequence: **every account has a subscription object from the moment it exists
 | `active` | Live |
 | `past_due` | **Live** — dunning gets its full recovery window |
 | `canceled` | **404 + branded "page not active" placeholder**, links hidden |
-| `canceled` + 30 days | Username released back to the pool |
+| `canceled` + 30 days | Username released back to the pool — **and the Account erased entirely (ADR-0012)** |
 
 Page data and the username are **reserved for 30 days** after cancellation, so reactivation is one payment and the page returns unchanged. Status arrives by **webhook** and is stored on the account; *how* a status change invalidates a CloudFront-cached page is deliberately left to the serving-architecture ticket (A2), not fixed here.
+
+**Amended by ADR-0012:** the 30-day mark is **terminal**, not merely a username release. It erases the whole item collection plus the Cognito user, driven by a one-shot EventBridge schedule the webhook creates on `canceled` and deletes on resubscribe. As written here the reservation expired but the data never did, leaving `email` in DynamoDB and Cognito indefinitely with no purpose — a storage-limitation exposure that needed no user to request anything. Erasure also **cancels the subscription before deleting**, since `mor_subscription_id` lives on the item being deleted.
 
 ## Consequences
 
@@ -67,7 +69,7 @@ Page data and the username are **reserved for 30 days** after cancellation, so r
 - The MoR costs ~2.4 points more than Stripe standard ($0.48/user/yr annual, $3.12/user/yr monthly) — accepted as the price of never touching VAT/GST.
 
 **Downstream constraints this imposes**
-- **Data model (A1):** account must carry subscription status, `canceled_at`, and a username reservation whose release is 30 days after cancellation.
+- **Data model (A1):** account must carry subscription status, `canceled_at`, and a username reservation whose release is 30 days after cancellation. **Widened by ADR-0012:** at that same 30-day mark the *entire* item collection is erased, not just the reservation released.
 - **Auth (A3):** account creation and subscription creation are one flow — signup passes through hosted checkout.
 - **Serving (A2):** must invalidate or gate a cached public page on webhook-driven status change.
 

@@ -60,4 +60,12 @@ _Avoid_: Preview, Embed, Social card
 The single static square image served as an Unfurl's `og:image` when a Page has no avatar. One asset for the whole system, not a per-Page artifact.
 _Avoid_: Default image, Placeholder
 
+**Erasure**:
+The irreversible removal of an Account and everything it owns — the DynamoDB item collection, the Cognito user, and the Username record. Distinct from a *lapse* (Subscription `canceled`, data retained 30 days) and from a *Suspension* (moderation, data retained). Erasure is what happens **at the end** of the 30-day lapse window, and is also what an Art. 17 request triggers on demand.
+_Avoid_: Delete, Cancel, Deactivate
+
+**Tombstone**:
+A Username record whose Account has been Erased but whose name stays unclaimable — `tombstonedAt` set, `ownerAccountId` removed. Created by a Suspension so a takedown's handle cannot be re-taken with a fresh email. It holds no personal data: a Tombstone is a Reserved name discovered at runtime, not an Account record.
+_Avoid_: Burnt handle, Blacklist entry, Ghost
+
 > "Creator" is marketing language for the human behind an Account — avoid it as a model term.

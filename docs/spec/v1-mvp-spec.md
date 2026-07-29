@@ -10,7 +10,7 @@ status: draft
 - **Vocabulary:** `CONTEXT.md` — Account, Page, Link, Username, Claim, Hold, Reserved name, Rename, Theme, Subscription, Suspension
 - **Sources:** ADR-0001 … ADR-0013 in `docs/adr/`
 
-This is a **synthesis**, not a new decision. It folds the ten ADRs and the map's locked scope into one document a builder can work from without reading the decision history. Every "why" is one link away; nothing here overrides an ADR.
+This is a **synthesis**, not a new decision. It folds the thirteen ADRs and the map's locked scope into one document a builder can work from without reading the decision history. Every "why" is one link away; nothing here overrides an ADR.
 
 **Read [§11 Unresolved on assembly](#11-unresolved-on-assembly) before writing code.** Reading the ADRs together exposes contradictions and gaps that none of them could see alone. They are small, but two of them change the data model.
 
@@ -65,9 +65,9 @@ Monthly is $2.99 rather than $2.00 **specifically so the fixed per-transaction f
 | `active` | `true` | Live |
 | `past_due` | `true` | **Live** — dunning gets its full recovery window |
 | `canceled` | `false` | 404 + neutral "page not active" placeholder |
-| `canceled` + 30 days | `false` | Username released back to the pool |
+| `canceled` + 30 days | — | Username released **and the Account erased** — ADR-0012, [§6.8](#68-deletion-erasure-and-export--adr-0012) |
 
-The webhook writes **both** the Account's Subscription block **and** the Page's mirrored `active` flag. Missing the second write leaves lapsed Pages visible — see [§4](#4-data-model-adr-0003-amended-by-0007-0009-0010).
+The webhook writes **both** the Account's Subscription block **and** the Page's mirrored `active` flag. Missing the second write leaves lapsed Pages visible — see [§4](#4-data-model--adr-0003-amended-by-0007--0009--0010).
 
 The webhook **must never write `suspendedAt`** (ADR-0010). That is the one attribute billing does not own.
 
@@ -96,7 +96,7 @@ Chosen over Cloudflare on a **cost tie**, decided by the founder's AWS fluency �
 | **Account** (private) | `PK=ACCOUNT#<id>`, `SK=ACCOUNT` | `email`, Subscription block (`status`, `plan`, `trialEnd`, `currentPeriodEnd`, `morCustomerId`, `morSubscriptionId`), `lastRenamedAt` (0007), `heldUsername` (0010). **No `GSI1PK`.** |
 | **Page** (public) | `PK=ACCOUNT#<id>`, `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | `username`, `displayName`, `bio`, `avatarWebp` (0009), `themeId`, `pageViewCount` (atomic `ADD`), `active`, `suspendedAt` (0010) |
 | **Link** (public) | `PK=ACCOUNT#<id>`, `SK=LINK#<ulid>`, `GSI1PK=USERNAME#<name>`, `GSI1SK=1#<rank>` | `label`, `url`, `rank` (fractional index), `clickCount` (atomic `ADD`) |
-| **Username** (uniqueness) | `PK=USERNAME#<name>`, `SK=USERNAME#<name>` | `ownerAccountId`, `claimedAt` (0007) |
+| **Username** (uniqueness) | `PK=USERNAME#<name>`, `SK=USERNAME#<name>` | `ownerAccountId` (**removable** — 0012), `claimedAt` (0007), `tombstonedAt` (0012) |
 | **OTP throttle** (0010) | see [§11.4](#114-the-fifth-item-type-is-unspecified) — **shape not specified by any ADR** | counter + TTL, keyed by email hash |
 
 **GSI1** (`GSI1PK` / `GSI1SK`) projects **public attributes only**. The Account item has no `GSI1PK`, so email and Subscription are **structurally unreachable** on the public read path — not merely un-projected.
@@ -116,6 +116,7 @@ Chosen over Cloudflare on a **cost tie**, decided by the founder's AWS fluency �
 | Link CRUD / reorder | single-item write |
 | Click / view | atomic `ADD` |
 | Claim / rename | `TransactWriteItems` |
+| **Erasure** (0012) | `Query PK=ACCOUNT#<id>` → `BatchWriteItem` delete + one conditional Username write |
 
 ### Visibility gate
 
@@ -149,7 +150,7 @@ Cache-Control: public, s-maxage=60, max-age=0
 
 This is not a shortcut. Invalidating per edit costs **~$250/mo at 10k Accounts editing 5×/month** ($0.005/path past 1,000 free), which is fatal at $1.67/mo per Account. Serving a cache miss, by contrast, is ~$0.30/M. Three properties follow: zero invalidation cost at any scale; no CloudFront call to retry, queue or fail on a mutation; and the system **self-heals** — a missed `active` write corrects within a minute instead of leaving a lapsed Page live indefinitely.
 
-**Exactly one thing invalidates: a suspension** ([§8](#8-abuse-takedown-rate-limiting-adr-0010)). Volume sits far inside the free 1,000 paths/month.
+**Exactly one thing invalidates: a suspension** ([§8](#8-abuse-takedown--rate-limiting--adr-0010)). Volume sits far inside the free 1,000 paths/month.
 
 ### Routing — one distribution
 
@@ -163,7 +164,7 @@ This is not a shortcut. Invalidating per edit costs **~$250/mo at 10k Accounts e
 | `/i/*` (unfurl image — ADR-0011) | **renderer Lambda** (FURL + OAC) | `s-maxage=60` |
 | `/*` **(default)** | **renderer Lambda** (FURL + OAC) | `s-maxage=60`, **no cookies forwarded** |
 
-> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/`, `/terms`, `/privacy`, `/robots.txt` and `/og-card.png` need **no behavior at all** — **ADR-0013** serves them from a static route table in `core`, checked by the renderer before the username lookup, at `s-maxage=300`. See [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site), now resolved. `www.ourapp.com` is a **separate** distribution (S3 website-redirect → apex), deliberately not an alias here — an alias would put `Host` in this behavior's cache key.
+> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/`, `/terms`, `/privacy`, `/robots.txt` and `/og-card.png` need **no behavior at all** — **ADR-0013** serves them from a static route table in `core`, checked by the renderer before the username lookup, at `s-maxage=300`. See [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site--resolved-by-adr-0013), now resolved. `www.ourapp.com` is a **separate** distribution (S3 website-redirect → apex), deliberately not an alias here — an alias would put `Host` in this behavior's cache key.
 
 The default behavior forwards **no cookies**, so dashboard sessions can never fragment the public cache. This is why the dashboard uses a `Bearer` token and not a session cookie. One distribution, one certificate, one deploy.
 
@@ -286,10 +287,13 @@ A claim writes **only** the Username item:
 ```
 CLAIM   Put Username { ownerAccountId, claimedAt }
           attribute_not_exists(PK)
-          OR (holder inactive AND holder not suspended AND claimedAt < now - 7d)
+          OR (holder inactive AND claimedAt < now - 7d
+              AND attribute_not_exists(tombstonedAt))    ← ADR-0012
         Delete previously-held Username        ← ADR-0010, same transaction
         Update Account.heldUsername
 ```
+
+**ADR-0012 moved the suspension check onto the Username item.** ADR-0010 wrote it as *"holder not suspended"*, reading `suspendedAt` on the **Page** — which erasure deletes, so a burnt handle would silently un-burn the moment its owner exercised their erasure right. `tombstonedAt` is written on the Username item at suspension time instead, and survives erasure with `ownerAccountId` stripped. One less cross-item read on the claim path — see [§11.1](#111-the-reclaim-condition-is-not-expressible-as-written).
 
 **An unpaid hold lasts 7 days**, harvested **lazily, on contention only** — no sweeper, no TTL, no scheduled job. An uncontended hold costs nothing and stays. ADR-0002's *canceled + 30 days → released* rides the **same condition**, so one mechanism implements both windows. They differ deliberately: a signup that never paid earns less protection than a customer who did.
 
@@ -309,7 +313,7 @@ One **self-contained HTML document**. Theme CSS inlined, no external stylesheet,
 
 - **Avatar** — `<img src="data:image/webp;base64,…">` with `object-fit: cover`, carrying `width`/`height` from the stored `avatarW`/`avatarH` (ADR-0011) so the layout cannot shift. The client scales to *fit* a 256 px box and CSS crops to fill, so **there is no crop UI to build**.
 - **No avatar** — a **themed CSS monogram**: a circle in the Theme's accent color bearing the first character of the display name (falling back to the username). Zero bytes, zero requests, no `<img>`. The minimum profile is username-only, so a large share of Pages launch with no avatar; they must look deliberate on day one, and **the layout must not jump when an avatar arrives later**.
-- **Links** point at `/r/<username>/<linkId>`, not the destination ([§7](#7-analytics-adr-0008)).
+- **Links** point at `/r/<username>/<linkId>`, not the destination ([§7](#7-analytics--adr-0008)).
 - **A 1×1 pixel** `<img src="/px?u=<username>">` is emitted for view counting.
 
 **Requests per page view: 2** (document + pixel) — see [§11.3](#113-requests-per-page-view-is-stated-three-different-ways).
@@ -358,7 +362,53 @@ This is not ADR-0009 reversed: every mechanism ADR-0009 removed (key rotation, o
 
 **Not in v1:** a sitemap (build-later — it is also the most attractive artifact we could hand an SEO spammer), and a per-Page "hide from search" toggle (ruled out of scope).
 
-**Settled by ADR-0013 / [S2](https://github.com/topeomot2/all-links/issues/21):** `/robots.txt` and `/og-card.png` are **renderer routes** in `core`'s static route table, not files on the SPA origin — see [§5](#5-architecture) and [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site). **Also amends §8's takedown:** suspension must invalidate `/i/<username>` alongside `/<username>`.
+**Settled by ADR-0013 / [S2](https://github.com/topeomot2/all-links/issues/21):** `/robots.txt` and `/og-card.png` are **renderer routes** in `core`'s static route table, not files on the SPA origin — see [§5](#5-architecture--adr-0004-0006-amended-by-0008--0009) and [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site--resolved-by-adr-0013). **Also amends §8's takedown:** suspension must invalidate `/i/<username>` alongside `/<username>`.
+
+### 6.8 Deletion, erasure and export — ADR-0012
+
+**Three rights, three answers.** Erasure on request (GDPR Art. 17) is **manual** — §8's `mailto:` inbox is the intake and the founder runs a runbook. Retention of lapsed Accounts is **automatic**. A self-serve delete button is **out of scope**, as is a self-serve export.
+
+The retention case is the one that was actually unowned: as inherited from ADR-0002, a canceled Account released its Username after 30 days and kept `email` in DynamoDB and Cognito **forever**, with no mechanism that would ever remove it and no user needing to ask.
+
+**One eraser, two callers.** Erasure-on-request and retention are the same function, so they are written once:
+
+```
+                eraseAccount(accountId)
+               /                       \
+   EventBridge Scheduler          founder, by hand
+   (one-shot, canceled +30d)      (Art. 17 request)
+```
+
+The billing webhook creates the one-shot schedule on `canceled` and deletes it on resubscribe. **EventBridge Scheduler bills 14M invocations/month free** — at one per churned Account this is unreachable, not merely cheap.
+
+**Order matters:**
+
+```
+eraseAccount:
+  1. cancel Subscription at the MoR      ← first: morSubscriptionId is on the item step 2 deletes
+  2. delete collection PK=ACCOUNT#<id>   ← Account, Page, all Links
+  3. Cognito AdminDeleteUser(accountId)
+  4. Username item:
+       not suspended → Delete                       handle returns to the pool
+       suspended     → REMOVE ownerAccountId
+                       SET    tombstonedAt          handle stays burnt, nothing personal retained
+```
+
+**No CloudFront invalidation.** The Page vanishes, the document expires under `s-maxage=60`, the path then serves §6.6's placeholder. §8's "suspension is the only invalidation in the system" stands.
+
+**A burnt handle stops being an account record and becomes a denylist entry** — the runtime sibling of §6.2's frozen reserved Set. Erasure is honoured in full and ADR-0010's tombstone survives it; no Art. 17(3) exemption has to be argued by a solo founder answering mail.
+
+**Erasure is webhook-proof, structurally.** §6.1 lets the billing webhook *create* the Page if it finishes second, so a late event could rebuild an erased Account. It cannot: that creation is guarded by `ConditionCheck Username.ownerAccountId == me`, and both erasure branches defeat it (the item is gone, or the attribute is). **Do not "fix" the webhook into an unconditional upsert** — that silently reopens it.
+
+**Guard, required:** a leaked schedule (resubscribe failed to delete it) would erase a *paying* Account, so the eraser **re-checks subscription status on entry and no-ops if the Account is active**.
+
+**Export** is the same runbook, one command longer: `Query PK=ACCOUNT#<id>` → strip internal attributes → JSON → mail it. This is literally the dashboard's own access pattern.
+
+**Money.** Erasure cancels the subscription immediately — charging for a deleted page is indefensible on the same grounds as §8's suspension. **Voluntary deletion forfeits the remainder of the term; no automatic refund, founder discretion case-by-case.** §2's fixed per-transaction fee is 18–30% of a $20 charge and is **not returned on a refund**, so a pro-rata obligation is not something this price point absorbs. Goes in `/terms`.
+
+**What `/privacy` must say** (owed to [§10](#10-pre-build-checklist) item 7): what is held; **no visitor IPs** (§7's commitment, restated as a promise); Stripe is the MoR and an independent controller with its own retention; erased 30 days after cancellation; erasure and export by email within 30 days; and **suspended handles stay reserved after erasure, holding no personal data** — stated plainly rather than done quietly.
+
+**Accepted:** erasure-on-request is a human in a loop against a 30-day statutory clock, with no tooling — the same load-bearing assumption §8 states for abuse, breaking at the same point. And the eraser is **unattended destructive code**: a bug in the collection query erases the wrong Account irreversibly, with point-in-time recovery as the only net.
 
 ---
 
@@ -434,7 +484,7 @@ The dashboard reads both counts from the `Query PK=ACCOUNT#<id>` it already runs
 
 1. Set `suspendedAt` on the Page and **invalidate `/<username>` *and* `/i/<username>`** (ADR-0011) — the only invalidation in the system, making the takedown immediate rather than up to 60 s late. Both paths, or the pulled avatar keeps serving inside unfurls that already exist.
 2. **Cancel the Subscription** with the merchant of record. Charging an account whose page has been pulled invites a dispute and is indefensible on its own terms.
-3. **Tombstone the Username** — the lazy harvest gains one clause: *never harvest a Username whose Page is suspended*. Without it, ADR-0002's 30-day release would hand the handle back to the same actor with a fresh email. Handles stay burnt until **manually** released, which is also the remedy in the impersonation case where the rightful owner wants the name.
+3. **Tombstone the Username** — **write `tombstonedAt` on the Username item** (ADR-0012), and the lazy harvest tests `attribute_not_exists(tombstonedAt)`. Without a tombstone, ADR-0002's 30-day release would hand the handle back to the same actor with a fresh email. Handles stay burnt until **manually** released, which is also the remedy in the impersonation case where the rightful owner wants the name. *ADR-0010 originally expressed this as a clause reading `suspendedAt` on the **Page**; [§6.8](#68-deletion-erasure-and-export--adr-0012) moved it onto the Username item, because erasure deletes the Page and the burnt handle must outlive it.*
 
 **Reports arrive by email.** Every public Page carries a footer line linking `mailto:abuse@ourapp.com?subject=Report: <username>`. This is the only intake channel — it adds no endpoint, no form, no unauthenticated write path and no runtime to a document kept deliberately runtime-free. The subject line carries the username, so triage is a mail filter. **The founder judges reports personally: no SLA, no queue tooling, no appeals beyond replying to the mail.**
 
@@ -455,7 +505,7 @@ This is a **cost ceiling, not a fairness mechanism** — under attack, legitimat
 
 **Username enumeration is not a threat and gets no limit** — the public site already answers taken-vs-free as 200/404 from the edge, so an availability endpoint reveals strictly less than CloudFront does. Recorded so it stops being re-deferred.
 
-**Bulk claiming was real** and is closed **structurally by delete-on-reclaim** ([§6.3](#63-holds-and-reclaim-adr-0007-amended-by-0010)), not by a limit.
+**Bulk claiming was real** and is closed **structurally by delete-on-reclaim** ([§6.3](#63-holds-and-reclaim--adr-0007-amended-by-0010)), not by a limit.
 
 **`/px` and `/r/*` get floor only.** No per-IP counters, no visitor IPs of any kind, hashed or not.
 
@@ -499,17 +549,19 @@ Work the map deliberately kept out of decision tickets. **None of these are deci
 | 4 | **SES production access** + SPF/DKIM/DMARC on the sending domain. Passwordless puts email on the critical login path. | §6.1 |
 | 5 | **An inbox for `abuse@ourapp.com`** — SES receiving or a forwarding alias. The only report intake channel. | §8 |
 | 6 | **Google Safe Browsing API key** and quota check. | §8 |
-| 7 | **Author `/terms`** (with the AUP the suspend lever enforces), **`/privacy`** (stating the no-visitor-IPs commitment) **and the `/` landing page** — pitch, pricing, CTA to `/app/`. All three are components in the renderer (ADR-0013); **legal review of Terms and Privacy before launch.** | §8, §5 |
+| 7 | **Author `/terms`** (the AUP the suspend lever enforces, **plus the no-refund-on-deletion line** — §6.8), **`/privacy`** (the **six claims [§6.8](#68-deletion-erasure-and-export--adr-0012) specifies**, including the no-visitor-IPs commitment) **and the `/` landing page** — pitch, pricing, CTA to `/app/`. All three are components in the renderer (ADR-0013); **legal review of Terms and Privacy before launch.** | §8, §5, §6.8 |
 | 8 | **Register a DMCA designated agent** with the US Copyright Office — a $6 filing, and the precondition for safe harbour on a UGC product selling into the US. | §8 |
 | 9 | **Size reserved concurrency per Lambda**, and set the CloudWatch/Budgets thresholds that trip the WAF escalation. Sizing, not deciding. | §8 |
 | 10 | **Design the 4–6 preset Themes** (accent color, type, layout, monogram treatment) as CSS in `core`. | §6.5 |
-| 11 | **Write the suspend runbook script** — DynamoDB write + MoR cancel + CloudFront invalidation (**both paths** — §6.7) in one command, so a 2am takedown is one command rather than three consoles. | §8 |
+| 11 | **Write the suspend runbook script** — DynamoDB write (**including `tombstonedAt`** — §6.8) + MoR cancel + CloudFront invalidation (**both paths** — §6.7) in one command, so a 2am takedown is one command rather than three consoles. Same script gains `erase-account` and `export-account`. | §8, §6.8 |
 | 12 | **Design `/og-card.png`** — a square brand card, the `og:image` for every Page without an avatar. A design asset, not a decision. | §6.7 |
 | 13 | **Check a live Page in Meta's sharing debugger** once a domain exists. A missing image is the named trigger for §6.7's pre-decided JPEG-companion escalation. | §6.7 |
 | 14 | **`www` certificate SAN, the S3 website-redirect bucket and its own distribution** in CDK (ADR-0013). Deliberately not an alias on the main distribution — that would put `Host` in the public cache key. | §5 |
 | 15 | **Keep the landing page's `$20/yr` / `$2.99/mo` in step with the Stripe catalogue.** ADR-0013 names this as a two-sources-of-truth watch item on the product's headline number, with no mechanism enforcing it. | §2, §5 |
 
-**Test explicitly** (called out in the ADRs as rare-but-real): the **paid-but-nameless recovery path**, where the billing webhook's `ConditionCheck` loses the race and the next successful claim creates the Page.
+| 16 | **Test the eraser against a real dev table.** It is unattended destructive code with no undo — a bug in the collection query erases the wrong Account. Cover both Username branches and the active-Account no-op guard (§6.8). | §6.8 |
+
+**Test explicitly** (called out in the ADRs as rare-but-real): the **paid-but-nameless recovery path**, where the billing webhook's `ConditionCheck` loses the race and the next successful claim creates the Page; and a **late billing webhook arriving after erasure**, which must no-op rather than resurrect the Account (§6.8).
 
 ---
 
@@ -530,6 +582,8 @@ attribute_not_exists(PK) OR (holder inactive AND claimedAt < now - 7d)
 **Recommended:** express the claim as a `TransactWriteItems` with a `ConditionCheck` on the **holder's Page item** (`active = false AND attribute_not_exists(suspendedAt)`) alongside the `Put` of the new Username, the `Delete` of the previously-held one, and the `Update` of `Account.heldUsername`. Costs one more transacted item on the rare contended path and keeps a single source of truth. *(Rejected alternative: mirroring `active`/`suspendedAt` onto the Username item — a third place the visibility state must stay in sync, which is exactly what ADR-0003's single mirrored flag was designed to avoid.)*
 
 Note this makes the contended claim a **four-item transaction**, and the harvest path must handle the case where the holder has **no Page at all** (claimed but never paid — the common case), where the `ConditionCheck` has no item to check.
+
+> **Partly reduced by ADR-0012** ([§6.8](#68-deletion-erasure-and-export--adr-0012)). The `not suspended` half is gone: suspension now writes **`tombstonedAt` onto the Username item**, so it is checkable in the `Put`'s own condition. That was forced independently — erasure deletes the Page, so a rule keying on `suspendedAt` cannot survive it — and the simplification came free. **`holder inactive` still reaches across to the Page**, so the `ConditionCheck` above is still needed and this stays open; it is now one cross-item read rather than two, and the recommended `ConditionCheck` narrows to `active = false`.
 
 ### 11.2 Nothing serves `/terms`, `/privacy`, or the marketing site — **RESOLVED by ADR-0013**
 
@@ -576,10 +630,10 @@ Cosmetic; listed so a reader of the individual files is not misled.
 
 ### Not a contradiction, but not covered anywhere
 
-Two things no ticket owned, surfaced here rather than silently assumed. Both were ticketed off the back of this section; the first is now closed:
+Two things no ticket owned, surfaced here rather than silently assumed. Both were ticketed off the back of this section, and **both are now closed:**
 
 - ~~**Open Graph / social meta tags.**~~ **Resolved by [S3](https://github.com/topeomot2/all-links/issues/22) → ADR-0011; see [§6.7](#67-unfurl-metadata-and-indexing--adr-0011).** `og:image` gets a real URL back as a renderer route at `/i/<username>.webp`, with a static square brand card as the fallback; indexing, `rel="nofollow ugc"` and `robots.txt` are settled there too.
-- **Account deletion and data export.** Selling into Europe with no erasure path is a GDPR exposure, and `/privacy` will have to say something. Either scope a delete endpoint into v1 or rule it out explicitly and handle erasure manually — but it should be a decision, not an omission.
+- ~~**Account deletion and data export.**~~ **Resolved by [S4](https://github.com/topeomot2/all-links/issues/23) → ADR-0012; see [§6.8](#68-deletion-erasure-and-export--adr-0012).** The question was three questions: erasure on request is **manual** and export with it, a self-serve delete is **out of scope**, and **retention — the one nobody owned — is automatic**, since a canceled Account otherwise kept its email in DynamoDB and Cognito forever. One `eraseAccount` with two callers, on a one-shot EventBridge schedule.
 
 ---
 
@@ -598,6 +652,8 @@ Two things no ticket owned, surfaced here rather than silently assumed. Both wer
 | [0009](../adr/0009-avatar-handling-and-upload-constraints.md) | Avatar handling | [A7](https://github.com/topeomot2/all-links/issues/15) |
 | [0010](../adr/0010-abuse-takedown-and-rate-limiting.md) | Abuse, takedown & rate limiting | [A8](https://github.com/topeomot2/all-links/issues/16) |
 | [0011](../adr/0011-social-unfurl-metadata-and-indexing.md) | Social unfurl metadata & indexing | [S3](https://github.com/topeomot2/all-links/issues/22) |
+| [0012](../adr/0012-account-deletion-and-data-erasure.md) | Account deletion & data erasure | [S4](https://github.com/topeomot2/all-links/issues/23) |
+| [0013](../adr/0013-root-marketing-and-legal-routes.md) | Root, marketing & legal routes | [S2](https://github.com/topeomot2/all-links/issues/21) |
 
 **Amendment chain** (why the merged tree differs from any single branch):
 
@@ -612,6 +668,15 @@ Two things no ticket owned, surfaced here rather than silently assumed. Both wer
 0011 ──amends──▶ 0003  (Page gains avatarW/avatarH; bio capped at 160)
      ──amends──▶ 0004  (adds /i/* behavior — six behaviors)
      ──amends──▶ 0010  (suspension invalidates /i/<username> too)
+0012 ──amends──▶ 0002  (canceled +30d is terminal: erase, not just release)
+     ──amends──▶ 0003  (Username gains tombstonedAt; ownerAccountId removable)
+     ──amends──▶ 0007  (claim condition gains attribute_not_exists(tombstonedAt))
+     ──amends──▶ 0010  (tombstone becomes a write on the Username item, and survives erasure)
+0013 ──amends──▶ 0004  (static route table; / cannot be routed away from the default behavior)
+     ──amends──▶ 0007  (reserved Set derived from the route table; standing rule retired)
+     ──amends──▶ 0011  (/robots.txt + /og-card.png are renderer routes, not SPA-origin files)
 ```
 
 ADR-0006, 0007, 0008, 0009 and 0010 each landed on a separate branch, so **no single branch shows the merged result**. This spec reads against all five merged together; the two collisions were both in ADR-0004's amendment table and were resolved by taking every amendment.
+
+**0012 and 0013 collided on the number.** S2 and S4 were worked concurrently and both claimed `0012`; each session then renumbered *itself* to `0013` to yield to the other, landing both in the same slot a second time. Settled by taking S2's pushed yield rather than rewriting its branch: **S4 is 0012, S2 is 0013** — so the numbers do *not* follow ticket order here, and the branches are stacked `S1 ← S3 ← S2 ← S4` rather than merged in parallel. Both amend **ADR-0007**, in different sections and without overlap.

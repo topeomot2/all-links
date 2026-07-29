@@ -68,10 +68,16 @@ A claim writes **only** the Username item — `{ ownerAccountId, claimedAt }`:
 ```
 CLAIM      put Username
              attribute_not_exists(PK)
-             OR (holder inactive AND claimedAt < now - 7d)
+             OR (holder inactive AND claimedAt < now - 7d
+                 AND attribute_not_exists(tombstonedAt))     ← ADR-0012
 ```
 
 **An unpaid hold lasts 7 days**, and is harvested **lazily, on contention only** — there is no sweeper, no scheduled job, no TTL. A held name that nobody else wants simply stays held, at zero cost. ADR-0002's *canceled + 30 days → username released* rides the same condition, so one mechanism implements both releases.
+
+**Amended by ADR-0012.** Two changes, one of them a simplification:
+
+- The condition gains `attribute_not_exists(tombstonedAt)`. ADR-0010 expressed its burnt-handle rule as *"never harvest a Username whose Page is suspended"* — a read of a **different item**, and one that cannot survive the erasure path, which deletes the Page. Moving the flag onto the Username item means the claim reads only the item it is already writing. One less cross-item read, and one of the three S1 §11.1 flagged.
+- **"No scheduled job" now holds for the hold, not for the account lifecycle.** ADR-0012 attaches a one-shot EventBridge schedule to a *canceled* account. That is not the sweeper rejected below: a sweeper periodically scans for work, and was refused because the work could be done lazily at the moment of contention. "Nobody ever came back" has no contention event to be lazy at, so ADR-0002's 30-day release still rides this condition, but the **erasure** behind it needs a timer.
 
 The two windows are deliberately different: a signup that never paid earns less protection than a customer who did.
 
