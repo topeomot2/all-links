@@ -60,7 +60,7 @@ The unclaimed body turns stray traffic into an acquisition funnel; the lapsed bo
 
 One **self-contained HTML document**: the Theme's CSS is inlined (presets are few and small), no external stylesheet, no framework runtime, and the Page renders with JavaScript disabled. ~~The avatar is served from the **same** CloudFront distribution off S3 via `avatarKey`.~~ **Amended by ADR-0009:** the avatar is a ≤24 KB WebP blob stored on the Page item and inlined as a `data:` URI, so it ships inside the document; an avatar-less Page renders a themed CSS monogram.
 
-~~**Two requests per page view** (document + avatar).~~ **Amended by ADR-0009: one request per page view** — the document alone, avatar included. Nothing to hash, version, or cache-bust; a theme change is a pure server-side concern.
+~~**Two requests per page view** (document + avatar).~~ **Amended by ADR-0009: one request per page view** — the document alone, avatar included. (ADR-0011's `/i/*` does not change this: it is fetched by unfurlers once per *share*, never by a browser rendering the Page.) Nothing to hash, version, or cache-bust; a theme change is a pure server-side concern.
 
 ### Counting
 
@@ -79,6 +79,7 @@ This ADR fixes only the constraint. The mechanism — tracking pixel vs inline b
 | ~~`/a/*`~~ | ~~S3 (avatars)~~ | **removed by ADR-0009** — avatars inline in the document |
 | `/px` (counting endpoint) | counter Lambda | `no-store` — **ADR-0008**: 1×1 pixel, `u` query string forwarded |
 | `/r/*` (click redirect) | counter Lambda | `no-store` — **added by ADR-0008** |
+| `/i/*` (unfurl image) | **page renderer Lambda** | `s-maxage=60` — **added by ADR-0011**: serves `avatarWebp` for `og:image`, 302 to `/og-card.png` otherwise |
 | `/*` **(default)** | **page renderer Lambda** | `s-maxage=60` |
 
 The default behavior's cache policy forwards **no cookies**, so dashboard session cookies never fragment the public cache. One distribution, one certificate, one deploy.

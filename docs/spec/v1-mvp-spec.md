@@ -160,9 +160,10 @@ This is not a shortcut. Invalidating per edit costs **~$250/mo at 10k Accounts e
 | `/app/assets/*` (hashed) | S3 | `immutable`, 1 year |
 | `/px` | counter Lambda (FURL + OAC) | `no-store`, forward `u` query string |
 | `/r/*` | counter Lambda (FURL + OAC) | `no-store` |
+| `/i/*` (unfurl image — ADR-0011) | **renderer Lambda** (FURL + OAC) | `s-maxage=60` |
 | `/*` **(default)** | **renderer Lambda** (FURL + OAC) | `s-maxage=60`, **no cookies forwarded** |
 
-> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**. `/terms`, `/privacy` and the marketing routes have **no behavior yet** — see [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site).
+> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/terms`, `/privacy` and the marketing routes have **no behavior yet** — see [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site). `/robots.txt` and `/og-card.png` ([§6.7](#67-unfurl-metadata-and-indexing--adr-0011)) are static files needing the same wiring.
 
 The default behavior forwards **no cookies**, so dashboard sessions can never fragment the public cache. This is why the dashboard uses a `Bearer` token and not a session cookie. One distribution, one certificate, one deploy.
 
@@ -305,7 +306,7 @@ Same regex, same denylist, same claim transaction. The old name is **released im
 
 One **self-contained HTML document**. Theme CSS inlined, no external stylesheet, no framework runtime, renders with **JavaScript disabled**.
 
-- **Avatar** — `<img src="data:image/webp;base64,…">` with `object-fit: cover`. The client scales to *fit* a 256 px box and CSS crops to fill, so **there is no crop UI to build**.
+- **Avatar** — `<img src="data:image/webp;base64,…">` with `object-fit: cover`, carrying `width`/`height` from the stored `avatarW`/`avatarH` (ADR-0011) so the layout cannot shift. The client scales to *fit* a 256 px box and CSS crops to fill, so **there is no crop UI to build**.
 - **No avatar** — a **themed CSS monogram**: a circle in the Theme's accent color bearing the first character of the display name (falling back to the username). Zero bytes, zero requests, no `<img>`. The minimum profile is username-only, so a large share of Pages launch with no avatar; they must look deliberate on day one, and **the layout must not jump when an avatar arrives later**.
 - **Links** point at `/r/<username>/<linkId>`, not the destination ([§7](#7-analytics-adr-0008)).
 - **A 1×1 pixel** `<img src="/px?u=<username>">` is emitted for view counting.
@@ -324,6 +325,37 @@ Both "no such Username" and "not visible" return **404**, cached at the same `s-
 | Page suspended | Reuses the neutral inactive body |
 
 The unclaimed body turns stray traffic into an acquisition funnel; the lapsed body avoids publicly outing a creator as unpaid. Matching the live TTL means a freshly claimed Username goes live within 60 seconds.
+
+### 6.7 Unfurl metadata and indexing — ADR-0011
+
+The unfurl is a large fraction of the product's surface and the only part of it that renders inside someone else's app. ADR-0009 removed `/a/*`, the last public image URL, so `og:image` needed a source.
+
+**`og:image` is `/i/<username>.webp`** — a route on the **renderer** Lambda (not a fourth deploy unit: it already runs the GSI1 query and owns the `active && !suspendedAt` gate). Returns `avatarWebp` as `image/webp` at `s-maxage=60`; **302s to `/og-card.png`** for no avatar, lapsed or suspended, so an unfurler never renders a broken card. A one-character prefix cannot collide with a username (≥3 chars — §6.2).
+
+This is not ADR-0009 reversed: every mechanism ADR-0009 removed (key rotation, orphan cleanup, an opaque key, the bucket, `sharp`) followed from an *immutable object and the upload path*, none of which a read endpoint reintroduces — and ADR-0008's dominant per-request fee is a **per-view** cost, while an unfurl fetch is **per-share**.
+
+**Tags emitted:**
+
+| Tag | Value |
+|---|---|
+| `<title>`, `og:title`, `twitter:title` | `displayName` + ` (@username)` **only when they differ** — §6.1 defaults `displayName` to the username, so unconditional would read "jane (@jane)" |
+| `og:description`, `twitter:description` | `bio`; empty → `All of @<username>'s links, in one place.` |
+| `og:image`, `twitter:image` | `/i/<username>.webp`, else `/og-card.png` |
+| `og:image:width/height/type` | from `avatarW`/`avatarH` |
+| `og:url` + `<link rel="canonical">` | `https://<domain>/<username>` |
+| `og:type` + `profile:username` | `profile` |
+| `og:site_name` | product name |
+| `twitter:card` | **always `summary`** |
+
+`summary` is forced — a ≤256² avatar is under `summary_large_image`'s 300×157 minimum — and made useful by keeping `/og-card.png` **square**, so the card type never varies and the renderer carries no branch. Values are user-supplied and land in attribute position; Preact escapes attributes as well as children (§5 Renderer).
+
+**Format risk, accepted.** X, LinkedIn and Discord accept WebP; **Meta's crawler may not**, and WhatsApp is a primary sharing path in Europe. Serving the stored WebP costs $0 and risks a text-only unfurl on Meta. **Pre-decided escalation** (ADR-0010's WAF idiom) — trigger: Meta's sharing debugger shows no image for a Page with an avatar; fix: the client encode also emits a JPEG, stored **outside the GSI1 projection** and read only by `/i/*`, leaving the hot path untouched. Storing JPEG instead was rejected: it taxes every view (~+8 KB base64 per document, worsening §11.5) to fix a per-share problem. Because the brand card is a static PNG, **the risk touches only Pages that have an avatar**.
+
+**Indexing.** Pages are `index,follow`. `noindex` on the unclaimed placeholder, the lapsed 404, the suspended notice and `/app/*`. Outbound anchors carry **`rel="nofollow ugc noopener"`** and `robots.txt` **disallows `/r/`, `/px/`, `/api/`, `/app/`** — which does two jobs: it removes the PageRank incentive that makes a link-in-bio host worth abusing (§8 has no tooling beyond one inbox), and it turns §7's click hygiene from a *heuristic* into a structural exclusion for compliant crawlers, since indexable Pages would otherwise invite every crawler to increment `clickCount`.
+
+**Not in v1:** a sitemap (build-later — it is also the most attractive artifact we could hand an SEO spammer), and a per-Page "hide from search" toggle (ruled out of scope).
+
+**Owed by [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site) / [S2](https://github.com/topeomot2/all-links/issues/21):** routing for `/robots.txt` and `/og-card.png`, both static files on the SPA origin. **Also amends §8's takedown:** suspension must invalidate `/i/<username>` alongside `/<username>`.
 
 ---
 
@@ -397,7 +429,7 @@ The dashboard reads both counts from the `Query PK=ACCOUNT#<id>` it already runs
 
 **Suspending does three things, in this order:**
 
-1. Set `suspendedAt` on the Page and **invalidate that one CloudFront path** — the only invalidation in the system, making the takedown immediate rather than up to 60 s late.
+1. Set `suspendedAt` on the Page and **invalidate `/<username>` *and* `/i/<username>`** (ADR-0011) — the only invalidation in the system, making the takedown immediate rather than up to 60 s late. Both paths, or the pulled avatar keeps serving inside unfurls that already exist.
 2. **Cancel the Subscription** with the merchant of record. Charging an account whose page has been pulled invites a dispute and is indefensible on its own terms.
 3. **Tombstone the Username** — the lazy harvest gains one clause: *never harvest a Username whose Page is suspended*. Without it, ADR-0002's 30-day release would hand the handle back to the same actor with a fresh email. Handles stay burnt until **manually** released, which is also the remedy in the impersonation case where the rightful owner wants the name.
 
@@ -468,7 +500,9 @@ Work the map deliberately kept out of decision tickets. **None of these are deci
 | 8 | **Register a DMCA designated agent** with the US Copyright Office — a $6 filing, and the precondition for safe harbour on a UGC product selling into the US. | §8 |
 | 9 | **Size reserved concurrency per Lambda**, and set the CloudWatch/Budgets thresholds that trip the WAF escalation. Sizing, not deciding. | §8 |
 | 10 | **Design the 4–6 preset Themes** (accent color, type, layout, monogram treatment) as CSS in `core`. | §6.5 |
-| 11 | **Write the suspend runbook script** — DynamoDB write + MoR cancel + CloudFront invalidation in one command, so a 2am takedown is one command rather than three consoles. | §8 |
+| 11 | **Write the suspend runbook script** — DynamoDB write + MoR cancel + CloudFront invalidation (**both paths** — §6.7) in one command, so a 2am takedown is one command rather than three consoles. | §8 |
+| 12 | **Design `/og-card.png`** — a square brand card, the `og:image` for every Page without an avatar. A design asset, not a decision. | §6.7 |
+| 13 | **Check a live Page in Meta's sharing debugger** once a domain exists. A missing image is the named trigger for §6.7's pre-decided JPEG-companion escalation. | §6.7 |
 
 **Test explicitly** (called out in the ADRs as rare-but-real): the **paid-but-nameless recovery path**, where the billing webhook's `ConditionCheck` loses the race and the next successful claim creates the Page.
 
@@ -528,14 +562,14 @@ Cosmetic; listed so a reader of the individual files is not misled.
 
 - **ADR-0006** says avatar upload "lands in the api Lambda writing to the `/a/*` S3 bucket" — superseded by ADR-0009. The api Lambda is right; the bucket no longer exists.
 - **ADR-0004**'s accepted-tradeoff list names the denylist as tracking "`api`, `app`, `a`, `px`, `r`" — `a` is gone with `/a/*`, and `terms`/`privacy` joined via ADR-0010.
-- **ADR-0007** enumerates the live behaviors as `/api/*`, `/app/*`, `/a/*`, `/px` — predates both `/r/*` and the removal of `/a/*`. Its *conclusion* is unaffected: only `api` and `app` can collide, since the rest are under three characters.
+- **ADR-0007** enumerates the live behaviors as `/api/*`, `/app/*`, `/a/*`, `/px` — predates `/r/*` and `/i/*`, and the removal of `/a/*`. Its *conclusion* is unaffected, and ADR-0011 leans on it: only `api` and `app` can collide, since the rest are under three characters.
 - **ADR-0005**'s signup ordering omits the username claim, which ADR-0007 inserted between Account creation and checkout. §6.1 states the merged order.
 
 ### Not a contradiction, but not covered anywhere
 
-Two things no ticket owned, surfaced here rather than silently assumed:
+Two things no ticket owned, surfaced here rather than silently assumed. Both were ticketed off the back of this section; the first is now closed:
 
-- **Open Graph / social meta tags.** ADR-0004 rejected an SPA partly *because* of OG previews, but no ADR ever specifies emitting them. A link-in-bio page is unfurled constantly — `og:title`, `og:description`, `og:image` (the avatar as a `data:` URI **will not work** for unfurlers; this needs a real URL or the tag omitted), plus `<title>` and a `robots` policy. **Renderer build requirement, and the `og:image` question is a live one** given ADR-0009 removed the only public image URL in the system.
+- ~~**Open Graph / social meta tags.**~~ **Resolved by [S3](https://github.com/topeomot2/all-links/issues/22) → ADR-0011; see [§6.7](#67-unfurl-metadata-and-indexing--adr-0011).** `og:image` gets a real URL back as a renderer route at `/i/<username>.webp`, with a static square brand card as the fallback; indexing, `rel="nofollow ugc"` and `robots.txt` are settled there too.
 - **Account deletion and data export.** Selling into Europe with no erasure path is a GDPR exposure, and `/privacy` will have to say something. Either scope a delete endpoint into v1 or rule it out explicitly and handle erasure manually — but it should be a decision, not an omission.
 
 ---
@@ -554,6 +588,7 @@ Two things no ticket owned, surfaced here rather than silently assumed:
 | [0008](../adr/0008-analytics-counting.md) | Analytics counting | [A4](https://github.com/topeomot2/all-links/issues/9) |
 | [0009](../adr/0009-avatar-handling-and-upload-constraints.md) | Avatar handling | [A7](https://github.com/topeomot2/all-links/issues/15) |
 | [0010](../adr/0010-abuse-takedown-and-rate-limiting.md) | Abuse, takedown & rate limiting | [A8](https://github.com/topeomot2/all-links/issues/16) |
+| [0011](../adr/0011-social-unfurl-metadata-and-indexing.md) | Social unfurl metadata & indexing | [S3](https://github.com/topeomot2/all-links/issues/22) |
 
 **Amendment chain** (why the merged tree differs from any single branch):
 
@@ -565,6 +600,9 @@ Two things no ticket owned, surfaced here rather than silently assumed:
 0010 ──amends──▶ 0003  (Page gains suspendedAt; visibility = active && !suspendedAt)
      ──amends──▶ 0004  (names the sole invalidation trigger)
      ──amends──▶ 0007  (delete-on-reclaim; harvest skips suspended; +terms/privacy)
+0011 ──amends──▶ 0003  (Page gains avatarW/avatarH; bio capped at 160)
+     ──amends──▶ 0004  (adds /i/* behavior — six behaviors)
+     ──amends──▶ 0010  (suspension invalidates /i/<username> too)
 ```
 
 ADR-0006, 0007, 0008, 0009 and 0010 each landed on a separate branch, so **no single branch shows the merged result**. This spec reads against all five merged together; the two collisions were both in ADR-0004's amendment table and were resolved by taking every amendment.

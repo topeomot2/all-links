@@ -20,7 +20,7 @@ v1 stores everything in one DynamoDB table (ADR-0001). The hot path is rendering
 | Item | Keys | Notable attributes |
 |---|---|---|
 | **Account** (private) | `SK=ACCOUNT` | email, auth subject; Subscription block: `status`, `plan`, `trial_end`, `current_period_end`, `mor_customer_id`, `mor_subscription_id`. **No `GSI1PK`** → never on the public path. |
-| **Page** (public) | `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | username, displayName, bio, ~~`avatarKey` (→ S3)~~ → **`avatarWebp`** (inline blob, ≤24 KB — ADR-0009), `themeId`, `pageViewCount` (atomic `ADD`), **`active`** (mirrored visibility flag) |
+| **Page** (public) | `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | username, displayName, `bio` (**≤160 chars — ADR-0011**), ~~`avatarKey` (→ S3)~~ → **`avatarWebp`** (inline blob, ≤24 KB — ADR-0009) with **`avatarW`/`avatarH`** (intrinsic dimensions — ADR-0011), `themeId`, `pageViewCount` (atomic `ADD`), **`active`** (mirrored visibility flag) |
 | **Link** (public) | `SK=LINK#<ulid>`, `GSI1PK=USERNAME#<name>`, `GSI1SK=1#<rank>` | label, url, `rank` (fractional index), `clickCount` (atomic `ADD`) |
 | **Username** (uniqueness) | `PK=USERNAME#<name>`, `SK=USERNAME#<name>` | `ownerAccountId`; written with `attribute_not_exists` inside the signup / rename transaction |
 
@@ -29,6 +29,8 @@ v1 stores everything in one DynamoDB table (ADR-0001). The hot path is rendering
 **Access patterns:** public render = 1 GSI1 query; dashboard = `Query PK=ACCOUNT#<id>`; Link CRUD/reorder = single-item writes (reorder updates one `rank`); click/view = atomic `ADD`; Subscription gate = get Account item.
 
 **Public visibility gate** (amended by **ADR-0010**) = `active && !suspendedAt`. The Page item gains **`suspendedAt`** — a moderation attribute, orthogonal to `active` and never written by the billing webhook — and both attributes arrive in the same GSI1 query, so the check costs no extra read.
+
+**Amended by ADR-0011:** the Page gains **`avatarW`/`avatarH`** — the intrinsic dimensions ADR-0009's validator already parses from the WebP header and discarded — so the renderer can declare `og:image:width`/`height` and size the inline `<img>`; and **`bio` is capped at 160 characters** at the API, matching `og:description` truncation so the renderer needs no truncation logic.
 
 **Username** is changeable: a rename is a transaction (claim new Username item, release old, rewrite `GSI1PK` across Page + all Link items). Old URLs 404 — no redirect table in v1.
 

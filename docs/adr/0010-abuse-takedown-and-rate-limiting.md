@@ -37,7 +37,7 @@ A suspension is followed by a **CloudFront invalidation of that one path** — t
 
 **Suspending an Account does three things**, in this order:
 
-1. Set `suspendedAt` on the Page and invalidate its path.
+1. Set `suspendedAt` on the Page and invalidate its path — **amended by ADR-0011: the invalidation must cover `/i/<username>` as well as `/<username>`**, or the suspended creator's avatar keeps serving for up to 60 s inside every unfurl that already exists. One more path in the same call.
 2. **Cancel the Subscription** with the merchant of record. Continuing to charge an account whose page has been pulled invites a dispute and is indefensible on its own terms.
 3. **Tombstone the Username.** ADR-0002 releases a canceled Account's handle after 30 days and ADR-0007 harvests it lazily on contention — which would hand the handle back to the same actor with a fresh email. The harvest condition therefore gains one clause: **never harvest a Username whose Page is suspended.** The harvest already reads that item, so this is a condition, not a mechanism. Handles stay burnt until manually released — which is the remedy for the impersonation case, where the rightful owner wants the name.
 

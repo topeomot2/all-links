@@ -48,4 +48,12 @@ _Avoid_: Membership
 A moderation state on a Page — set by a takedown, recorded as `suspendedAt`, and deliberately **not** a Subscription state. A Page is publicly visible only when it is both `active` (Subscription is good) and not suspended; the billing webhook never writes it, so paying again does not revive a suspended Page.
 _Avoid_: Ban, Deactivation, Disabled
 
+**Unfurl**:
+The preview card another app (X, Discord, iMessage, WhatsApp) renders when a Page's URL is pasted into it — built from the Open Graph tags the renderer emits. A distinct surface from the Page itself: it is fetched **once per share** by a crawler, not once per view by a browser, which is why its costs and its image do not follow the Page's rules.
+_Avoid_: Preview, Embed, Social card
+
+**Brand card**:
+The single static square image served as an Unfurl's `og:image` when a Page has no avatar. One asset for the whole system, not a per-Page artifact.
+_Avoid_: Default image, Placeholder
+
 > "Creator" is marketing language for the human behind an Account — avoid it as a model term.
