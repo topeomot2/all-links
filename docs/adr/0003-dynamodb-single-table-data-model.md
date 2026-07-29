@@ -20,7 +20,7 @@ v1 stores everything in one DynamoDB table (ADR-0001). The hot path is rendering
 | Item | Keys | Notable attributes |
 |---|---|---|
 | **Account** (private) | `SK=ACCOUNT` | email, auth subject; Subscription block: `status`, `plan`, `trial_end`, `current_period_end`, `mor_customer_id`, `mor_subscription_id`. **No `GSI1PK`** → never on the public path. |
-| **Page** (public) | `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | username, displayName, bio, `avatarKey` (→ S3), `themeId`, `pageViewCount` (atomic `ADD`), **`active`** (mirrored visibility flag), **`suspendedAt`** (moderation, ADR-0009 — orthogonal to `active`; public visibility is `active && !suspendedAt`) |
+| **Page** (public) | `SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0` | username, displayName, bio, `avatarKey` (→ S3), `themeId`, `pageViewCount` (atomic `ADD`), **`active`** (mirrored visibility flag) |
 | **Link** (public) | `SK=LINK#<ulid>`, `GSI1PK=USERNAME#<name>`, `GSI1SK=1#<rank>` | label, url, `rank` (fractional index), `clickCount` (atomic `ADD`) |
 | **Username** (uniqueness) | `PK=USERNAME#<name>`, `SK=USERNAME#<name>` | `ownerAccountId`; written with `attribute_not_exists` inside the signup / rename transaction |
 
