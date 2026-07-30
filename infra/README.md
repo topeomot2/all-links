@@ -39,6 +39,79 @@ Region defaults to `us-east-1`; override with `-c region=…` or
 answer: the site returns renderer HTML and a second request is a CloudFront
 `HIT`, and the Function URL returns **403** when hit directly.
 
+## What a human identity needs
+
+CI does not use any of this — it assumes a role over OIDC (below). This is for
+a laptop. Prefer an IAM Identity Center permission set over an IAM user with
+long-lived access keys; the policies are the same either way.
+
+Almost all the power lives in the **bootstrap roles**, not in your identity.
+`cdk deploy` assumes `cdk-hnb659fds-deploy-role-…`, which passes
+`cdk-hnb659fds-cfn-exec-role-…` to CloudFormation, and *that* role is what
+creates resources — `AdministratorAccess` unless you bootstrapped with
+`--cloudformation-execution-policies`. So the identity you keep needs almost
+nothing.
+
+**Bootstrapping is the exception.** `cdk bootstrap` creates IAM roles, the
+assets bucket and an SSM parameter; it is not meaningfully scopable. Run it
+once with an admin session, then never again.
+
+**Tier 1 — deploy.** Enough for `cdk deploy`, `cdk diff`, `cdk destroy` and
+`tools/verify-deployment.sh`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "AssumeCdkRoles", "Effect": "Allow", "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::<ACCOUNT>:role/cdk-hnb659fds-*-<ACCOUNT>-<REGION>" },
+    { "Sid": "VerifyScript", "Effect": "Allow", "Action": "cloudformation:DescribeStacks",
+      "Resource": "arn:aws:cloudformation:<REGION>:<ACCOUNT>:stack/AllLinks-*/*" },
+    { "Sid": "BootstrapVersion", "Effect": "Allow", "Action": "ssm:GetParameter",
+      "Resource": "arn:aws:ssm:<REGION>:<ACCOUNT>:parameter/cdk-bootstrap/hnb659fds/version" }
+  ]
+}
+```
+
+**Tier 2 — `cdk watch`.** Hotswap does **not** go through the deploy role.
+`hotswapDeployment` asks for an SDK with `forEnvironment(env, ForWriting)` and
+no `assumeRoleArn`, so it calls Lambda directly with *your* credentials
+(checked against aws-cdk 2.1134). Without these it still works, but every
+change falls back to a full CloudFormation deploy and the ~5–10 s loop is lost:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow",
+      "Action": ["lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:GetFunction"],
+      "Resource": "arn:aws:lambda:<REGION>:<ACCOUNT>:function:AllLinks-dev-*" },
+    { "Effect": "Allow",
+      "Action": ["cloudformation:DescribeStacks", "cloudformation:DescribeStackResources", "cloudformation:GetTemplate"],
+      "Resource": "arn:aws:cloudformation:<REGION>:<ACCOUNT>:stack/AllLinks-dev/*" }
+  ]
+}
+```
+
+**Tier 3 — the local dev server, from T2.** It reads the real dev table, not
+DynamoDB Local (ADR-0006):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{ "Effect": "Allow",
+    "Action": ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+               "dynamodb:DeleteItem", "dynamodb:BatchWriteItem", "dynamodb:TransactWriteItems"],
+    "Resource": ["arn:aws:dynamodb:<REGION>:<ACCOUNT>:table/AllLinks-dev-Table*",
+                 "arn:aws:dynamodb:<REGION>:<ACCOUNT>:table/AllLinks-dev-Table*/index/GSI1"] }]
+}
+```
+
+Scope tiers 2 and 3 to `AllLinks-dev*`: nothing on a laptop should be able to
+reach prod. As later tickets add Cognito, SES, EventBridge Scheduler and the
+SPA bucket, tier 1 does not change — those resources are created by the
+`cfn-exec-role`, not by you. Only tiers 2 and 3 grow.
+
 ## CI deploys with OIDC, not keys
 
 `.github/workflows/deploy-dev.yml` assumes a role via GitHub's OIDC provider —
