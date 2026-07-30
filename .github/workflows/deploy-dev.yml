@@ -1,0 +1,58 @@
+name: Deploy dev
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC only — no long-lived AWS keys in CI (ADR-0006).
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Stays skipped until the deploy role exists, rather than failing red.
+    # See infra/README.md for the role and its trust policy.
+    if: vars.AWS_DEPLOY_ROLE_ARN != ''
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: all-links-deploy-dev
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy AllLinks-dev
+        working-directory: infra
+        run: >
+          npx cdk deploy AllLinks-dev
+          --require-approval never
+          -c alertEmail=${{ vars.ALERT_EMAIL }}
+          -c region=${{ vars.AWS_REGION }}
+
+      - name: Verify the deployed stack
+        run: ./tools/verify-deployment.sh AllLinks-dev
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}

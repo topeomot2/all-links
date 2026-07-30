@@ -1,0 +1,21 @@
+{
+  "name": "@all-links/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "synth": "cdk synth",
+    "diff:dev": "cdk diff AllLinks-dev",
+    "deploy:dev": "cdk deploy AllLinks-dev",
+    "watch:dev": "cdk watch AllLinks-dev",
+    "deploy:prod": "cdk deploy AllLinks-prod"
+  },
+  "dependencies": {
+    "@all-links/core": "*",
+    "aws-cdk-lib": "^2.262.2",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.1134.0"
+  }
+}
