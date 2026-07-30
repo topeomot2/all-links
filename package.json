@@ -1,0 +1,31 @@
+{
+  "name": "all-links",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "infra"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/dashboard/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "npm run dev --workspace @all-links/dashboard",
+    "dev:server": "tsx tools/dev-server.ts",
+    "synth": "npm run synth --workspace @all-links/infra",
+    "deploy:dev": "npm run deploy:dev --workspace @all-links/infra",
+    "watch:dev": "npm run watch:dev --workspace @all-links/infra",
+    "build:dashboard": "npm run build --workspace @all-links/dashboard"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.18.9",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

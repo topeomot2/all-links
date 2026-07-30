@@ -1,0 +1,14 @@
+{
+  "name": "@all-links/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./handler": "./src/handler.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@all-links/core": "*"
+  }
+}

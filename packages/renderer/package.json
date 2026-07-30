@@ -1,0 +1,16 @@
+{
+  "name": "@all-links/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./handler": "./src/handler.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@all-links/core": "*",
+    "preact": "^10.29.7",
+    "preact-render-to-string": "^6.7.0"
+  }
+}
