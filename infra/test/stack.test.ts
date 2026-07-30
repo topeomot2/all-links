@@ -165,6 +165,31 @@ describe('the distribution', () => {
   });
 });
 
+describe('empty context', () => {
+  // CI passes `-c alertEmail=${{ vars.ALERT_EMAIL }}`, which becomes a literal
+  // `-c alertEmail=` when the repository variable is unset. Empty is missing.
+  const empty = () =>
+    buildApp(new App({ context: { alertEmail: '', region: '' } })).node.findChild(
+      'AllLinks-dev',
+    ) as never;
+
+  it('never puts an empty address on the budget', () => {
+    const budgets = Template.fromStack(empty()).findResources('AWS::Budgets::Budget');
+    const subscribers = Object.values(budgets)[0]?.Properties?.NotificationsWithSubscribers ?? [];
+
+    expect(subscribers.length).toBeGreaterThan(0);
+    for (const entry of subscribers) {
+      for (const subscriber of entry.Subscribers) {
+        expect(subscriber.Address).toBeTruthy();
+      }
+    }
+  });
+
+  it('still resolves a region', () => {
+    expect((empty() as unknown as Stack).region).toBe('us-east-1');
+  });
+});
+
 describe('the budget', () => {
   it('is mandatory, and mails a real address (ADR-0001)', () => {
     dev.hasResourceProperties('AWS::Budgets::Budget', {

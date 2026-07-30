@@ -13,7 +13,10 @@ export async function handler(
 ): Promise<APIGatewayProxyStructuredResultV2> {
   return {
     statusCode: 501,
-    headers: { 'cache-control': 'no-store' },
-    body: '',
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    },
+    body: JSON.stringify({ error: 'not_implemented' }),
   };
 }

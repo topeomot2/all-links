@@ -2,8 +2,8 @@
  * The renderer's transport-independent request/response shapes.
  *
  * `handleRequest` is written against these rather than against a Lambda event,
- * so the same code answers a Function URL invocation in the dev stack and a
- * plain Node request in the local dev loop (ADR-0006).
+ * so routing, freshness and status codes are testable without constructing one
+ * — `handler.ts` is the only file that knows what a Function URL event is.
  */
 export interface RenderRequest {
   method: string;

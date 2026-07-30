@@ -83,7 +83,7 @@ export interface UsernameItem extends UsernameKey {
   ownerAccountId?: string;
   /** ISO-8601 — the 7-day hold window is measured from here (ADR-0007). */
   claimedAt?: string;
-  /** ISO-8601 — set by a suspension; the handle stays burnt (ADR-0012). */
+  /** ISO-8601 — set by a Suspension; the Username stays unclaimable (ADR-0012). */
   tombstonedAt?: string;
 }
 
@@ -104,7 +104,9 @@ export type Item = AccountItem | PageItem | LinkItem | UsernameItem | OtpThrottl
  * the public index by construction rather than by review.
  */
 export const GSI1_PROJECTED_ATTRIBUTES = [
-  // Page
+  // Page. `accountId` is projected explicitly even though `PK` carries it:
+  // `/px` and `/r/*` resolve the owning Account from this one query (spec §7),
+  // and reading an attribute beats parsing a key at three call sites.
   'accountId',
   'username',
   'displayName',

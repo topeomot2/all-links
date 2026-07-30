@@ -13,16 +13,22 @@ const PLACEHOLDER_ALERT_EMAIL = 'alerts@example.invalid';
  * account from the caller's profile.
  */
 export function buildApp(app: App = new App()): App {
-  const alertEmail =
-    (app.node.tryGetContext('alertEmail') as string | undefined) ??
-    process.env['ALERT_EMAIL'] ??
-    PLACEHOLDER_ALERT_EMAIL;
+  /**
+   * CI passes `-c alertEmail=${{ vars.ALERT_EMAIL }}`, which arrives as a
+   * literal `-c alertEmail=` when the repository variable is unset. An empty
+   * value is a missing one — otherwise the budget gets a blank subscriber and
+   * the region resolves to nothing.
+   */
+  const configured = (name: string, fallback?: string): string | undefined => {
+    const candidates = [app.node.tryGetContext(name) as string | undefined, fallback];
+    return candidates.find((value) => value !== undefined && value !== '');
+  };
+
+  const alertEmail = configured('alertEmail', process.env['ALERT_EMAIL']) ?? PLACEHOLDER_ALERT_EMAIL;
 
   const env = {
-    account: process.env['CDK_DEFAULT_ACCOUNT'],
-    region: (app.node.tryGetContext('region') as string | undefined) ??
-      process.env['CDK_DEFAULT_REGION'] ??
-      'us-east-1',
+    account: process.env['CDK_DEFAULT_ACCOUNT'] || undefined,
+    region: configured('region', process.env['CDK_DEFAULT_REGION']) ?? 'us-east-1',
   };
 
   const dev = new AllLinksStack(app, 'AllLinks-dev', {

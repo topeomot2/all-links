@@ -14,13 +14,13 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 
-import type { LambdaFunctionURLEvent, LambdaFunctionURLResult } from 'aws-lambda';
+import type { APIGatewayProxyStructuredResultV2, LambdaFunctionURLEvent } from 'aws-lambda';
 
 import { handler as apiHandler } from '@all-links/api/handler';
 import { handler as counterHandler } from '@all-links/counter/handler';
 import { handler as rendererHandler } from '@all-links/renderer/handler';
 
-type Handler = (event: LambdaFunctionURLEvent) => Promise<LambdaFunctionURLResult>;
+type Handler = (event: LambdaFunctionURLEvent) => Promise<APIGatewayProxyStructuredResultV2>;
 
 const PORT = Number(process.env['PORT'] ?? 3000);
 
@@ -95,16 +95,12 @@ function toFunctionUrlEvent(
   } as LambdaFunctionURLEvent;
 }
 
-function normalise(result: LambdaFunctionURLResult): {
+function normalise(result: APIGatewayProxyStructuredResultV2): {
   statusCode: number;
   headers: Record<string, string>;
   body: string;
   isBase64Encoded: boolean;
 } {
-  if (typeof result === 'string') {
-    return { statusCode: 200, headers: {}, body: result, isBase64Encoded: false };
-  }
-
   const headers: Record<string, string> = {};
   for (const [name, value] of Object.entries(result.headers ?? {})) {
     headers[name] = String(value);
