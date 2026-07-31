@@ -38,6 +38,12 @@ export interface AllLinksStackProps extends StackProps {
   stage: Stage;
   /** Where the mandatory Budgets alarm mails (ADR-0001). */
   alertEmail: string;
+  /**
+   * The apex domain every public Page's abuse mailto points at (ADR-0010).
+   * It is the renderer's only knowledge of where it is deployed; the real
+   * domain lands with P1.
+   */
+  siteDomain: string;
   /** Monthly spend the budget is measured against, in USD. */
   monthlyBudgetUsd: number;
   /**
@@ -109,6 +115,7 @@ export class AllLinksStack extends Stack {
       environment: {
         STAGE: stage,
         TABLE_NAME: this.table.tableName,
+        SITE_DOMAIN: props.siteDomain,
         NODE_OPTIONS: '--enable-source-maps',
       },
       projectRoot: repoRoot,
@@ -121,6 +128,11 @@ export class AllLinksStack extends Stack {
         sourcesContent: false,
         tsconfig: path.join(repoRoot, 'tsconfig.json'),
         mainFields: ['module', 'main'],
+        // CDK would otherwise leave `@aws-sdk/*` external and trust whatever
+        // the managed runtime ships. Bundling it means the DynamoDB client the
+        // renderer is tested against is the one it runs on, and a runtime
+        // refresh cannot change the read path underneath a deployed Lambda.
+        bundleAwsSDK: true,
       },
     });
 

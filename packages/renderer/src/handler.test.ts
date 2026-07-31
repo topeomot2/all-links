@@ -47,9 +47,13 @@ describe('the Function URL adapter', () => {
   });
 
   it('returns a Function URL result the runtime can serialise', async () => {
-    const res = await handler(event());
+    process.env['TABLE_NAME'] = 'the-table';
 
-    expect(res.statusCode).toBe(200);
+    // A path that is not a Username is answered above the table, so this
+    // exercises the whole adapter without reaching DynamoDB.
+    const res = await handler(event({ rawPath: '/deep/unknown/path' }));
+
+    expect(res.statusCode).toBe(404);
     expect(res.headers?.['cache-control']).toBe('public, s-maxage=60, max-age=0');
     expect(res.body ?? '').toContain('<!DOCTYPE html>');
     expect(res.isBase64Encoded).toBe(false);

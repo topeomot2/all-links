@@ -3,6 +3,7 @@
 #
 #   1. the deployed URL returns renderer HTML, and a second request is a HIT
 #   2. the *.lambda-url.*.on.aws hostname returns 403 when hit directly
+#   3. a reserved name answers honestly rather than offering to sell itself
 #
 # Usage: ./tools/verify-deployment.sh [stack-name]   (default: AllLinks-dev)
 set -euo pipefail
@@ -31,15 +32,18 @@ echo
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
 # 1. HTML from the renderer, through CloudFront, on an arbitrary path.
+#    Since T2 an unclaimed username is a 404 carrying the "claim it" body —
+#    still a renderer document, still cached for 60 s at the edge.
 path="/verify-$(date +%s)"
 headers="$(curl -sS -D - -o /tmp/all-links-body "$SITE_URL$path")"
 
-grep -qi '^HTTP/[0-9.]* 200' <<<"$headers" || fail "expected 200 from $SITE_URL$path"
+grep -qi '^HTTP/[0-9.]* 404' <<<"$headers" || fail "expected 404 from $SITE_URL$path"
 grep -qi '^content-type: text/html' <<<"$headers" || fail 'expected an HTML content-type'
 grep -qi '^cache-control: public, s-maxage=60, max-age=0' <<<"$headers" \
   || fail 'expected Cache-Control: public, s-maxage=60, max-age=0'
 grep -q '<!DOCTYPE html>' /tmp/all-links-body || fail 'expected a renderer document'
-echo "ok  renderer HTML through CloudFront"
+grep -qi 'is available' /tmp/all-links-body || fail 'expected the unclaimed-username body'
+echo "ok  unclaimed username renders the claim-it 404 through CloudFront"
 
 # 2. The same path again is served from the edge.
 second="$(curl -sS -D - -o /dev/null "$SITE_URL$path")"
@@ -51,6 +55,15 @@ echo "ok  second request is a CloudFront HIT"
 direct="$(curl -sS -o /dev/null -w '%{http_code}' "$FUNCTION_URL")"
 [[ "$direct" == "403" ]] || fail "expected 403 direct from the Function URL, got $direct"
 echo "ok  Function URL returns 403 when hit directly"
+
+# 4. A reserved name is answered above the table, and is not for sale.
+reserved="$(curl -sS -D - -o /tmp/all-links-reserved "$SITE_URL/support")"
+grep -qi '^HTTP/[0-9.]* 404' <<<"$reserved" || fail 'expected 404 for a reserved name'
+grep -qi 'reserved' /tmp/all-links-reserved || fail 'expected the reserved-name body for /support'
+if grep -q 'href="/app/"' /tmp/all-links-reserved; then
+  fail '/support offered a signup CTA — a reserved name is not for sale'
+fi
+echo "ok  reserved name answers honestly, with no CTA"
 
 echo
 echo "$STACK verified"

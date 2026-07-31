@@ -1,2 +1,2 @@
 export * from './http.js';
-export { handleRequest } from './render.js';
+export { handleRequest, type RenderDeps } from './render.js';

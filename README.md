@@ -11,7 +11,8 @@ A cheap, serverless "link in bio" product: each Account has one public Page at
 
 ```
 packages/
-  core/        domain types, single-table key construction
+  core/        domain types, key construction, the public read path,
+                 username rules + reserved names, Themes
   renderer/    Lambda — HTML for every public path      (CloudFront default behavior)
   api/         Lambda — /api/* CRUD + billing webhooks  (T7 onwards)
   counter/     Lambda — /px views, /r/* click redirects (T5)
@@ -51,8 +52,13 @@ npm run dev                           # dashboard on :5173, proxying to :3000
 ```
 
 Vite serves `/app/*` itself and proxies everything else to the handler server —
-the same split the distribution makes at the edge. From T2 onwards, export
-`TABLE_NAME` (the dev stack's table) and have AWS credentials in the shell.
+the same split the distribution makes at the edge. Export `TABLE_NAME` (the dev
+stack's table) and have AWS credentials in the shell — the renderer reads every
+Page from it, so without them a Page request is a 500.
+
+Nothing seeds a Page yet (that is T12's billing flow), so to see a real render
+put a Page item and a few Links in the dev table by hand — `PK=ACCOUNT#<id>`,
+`SK=PAGE`, `GSI1PK=USERNAME#<name>`, `GSI1SK=0`, with `active: true`.
 
 **Deployed, for edge behavior.** Caching, TTLs and OAC are only ever real in
 the deployed dev stack. `cdk watch` hotswaps Lambda code in ~5–10 s:

@@ -41,6 +41,24 @@ export function htmlResponse(body: string, cacheControl: string, status = 200): 
   };
 }
 
+/**
+ * A read that failed, not an answer.
+ *
+ * `no-store` is the load-bearing part: a 404 or an empty Page cached for 60
+ * seconds would turn a momentary DynamoDB blip into a minute of wrong answers
+ * at every edge, and there is no routine invalidation to pull it back.
+ */
+export function serverError(): RenderResponse {
+  return {
+    status: 500,
+    headers: {
+      'content-type': 'text/plain; charset=utf-8',
+      'cache-control': NO_STORE,
+    },
+    body: 'Internal Server Error',
+  };
+}
+
 export function methodNotAllowed(): RenderResponse {
   return {
     status: 405,

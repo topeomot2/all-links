@@ -31,9 +31,17 @@ export function buildApp(app: App = new App()): App {
     region: configured('region', process.env['CDK_DEFAULT_REGION']) ?? 'us-east-1',
   };
 
+  /**
+   * The domain the abuse mailbox lives on (ADR-0010). Placeholder until P1
+   * registers the real one — an unroutable address here would be worse than a
+   * wrong one, because the footer link is a public product surface.
+   */
+  const siteDomain = configured('siteDomain', process.env['SITE_DOMAIN']) ?? 'ourapp.com';
+
   const dev = new AllLinksStack(app, 'AllLinks-dev', {
     stage: 'dev',
     alertEmail,
+    siteDomain,
     monthlyBudgetUsd: 20,
     rendererReservedConcurrency: 10,
     env,
@@ -42,6 +50,7 @@ export function buildApp(app: App = new App()): App {
   const prod = new AllLinksStack(app, 'AllLinks-prod', {
     stage: 'prod',
     alertEmail,
+    siteDomain,
     monthlyBudgetUsd: 100,
     rendererReservedConcurrency: 100,
     env,
