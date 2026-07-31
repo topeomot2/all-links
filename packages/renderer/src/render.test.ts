@@ -85,6 +85,15 @@ describe('a visible Page', () => {
     expect(d.lookedUp).toEqual(['jane']);
   });
 
+  it('titles the document `displayName (@username)`, but only when they differ (ADR-0011)', async () => {
+    const named = await render(visible([], { displayName: 'Jane Doe' }));
+    const unnamed = await render(visible([], { displayName: '' }));
+
+    expect(named.body).toContain('<title>Jane Doe (@jane)</title>');
+    // A Page that never set a display name must not be titled `jane (@jane)`.
+    expect(unnamed.body).toContain('<title>jane</title>');
+  });
+
   it('shows the display name and bio', async () => {
     const res = await render(visible([], { bio: 'Maker of things' }));
 

@@ -1,3 +1,5 @@
+import type { Theme } from '@all-links/core';
+import { themeVariables } from '@all-links/core';
 import type { ComponentChildren } from 'preact';
 
 /**
@@ -5,16 +7,20 @@ import type { ComponentChildren } from 'preact';
  *
  * Self-contained by construction (ADR-0004): the only place CSS can enter is
  * the `css` prop, which is inlined, and there is no slot for a script at all.
+ * Callers hand over a Theme and their own rules — assembling the stylesheet is
+ * this component's job, so no caller can inline a Theme differently.
  */
 export interface DocumentProps {
   title: string;
+  theme: Theme;
+  /** Rules layered over `BASE_CSS`, which is always present. */
   css: string;
   /** Omitted on a Page — Pages are `index,follow` (ADR-0011). */
   robots?: string;
   children: ComponentChildren;
 }
 
-export function Document({ title, css, robots, children }: DocumentProps) {
+export function Document({ title, theme, css, robots, children }: DocumentProps) {
   return (
     <html lang="en">
       <head>
@@ -22,15 +28,18 @@ export function Document({ title, css, robots, children }: DocumentProps) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title}</title>
         {robots ? <meta name="robots" content={robots} /> : null}
-        <style>{css}</style>
+        <style>{`:root{${themeVariables(theme)}}${BASE_CSS}${css}`}</style>
       </head>
       <body>{children}</body>
     </html>
   );
 }
 
-/** Shared by every document, above whatever the Theme or the placeholder adds. */
-export const BASE_CSS = `
+/**
+ * Shared by every document. User-supplied text can be a single unbroken 30-
+ * character run, so `overflow-wrap` is here rather than repeated per surface.
+ */
+const BASE_CSS = `
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{
@@ -45,4 +54,6 @@ background:var(--background);
 color:var(--text);
 }
 main{width:100%;max-width:34rem;text-align:center;flex:1}
+h1{font-size:1.5rem;letter-spacing:-0.01em;margin:0 0 0.75rem}
+h1,p,a{overflow-wrap:anywhere}
 `;

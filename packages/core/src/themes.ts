@@ -9,8 +9,6 @@
 
 export interface Theme {
   id: string;
-  /** Human-readable, for the dashboard's theme picker (T11). */
-  name: string;
   /** The monogram circle and the link affordances. */
   accent: string;
   /** Text drawn on top of `accent` — the monogram's letter. */
@@ -23,7 +21,6 @@ export interface Theme {
 
 const SLATE: Theme = {
   id: 'slate',
-  name: 'Slate',
   accent: '#4f46e5',
   onAccent: '#ffffff',
   background: '#0b0d12',

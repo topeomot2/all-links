@@ -1,6 +1,6 @@
 // `LambdaFunctionURLResult` also admits a bare string; the structured shape is
 // the only one these handlers return.
-import { createDynamoPageStore } from '@all-links/core';
+import { createDynamoPageStore, DEFAULT_SITE_DOMAIN } from '@all-links/core';
 import type { APIGatewayProxyStructuredResultV2, LambdaFunctionURLEvent } from 'aws-lambda';
 
 import { serverError, type RenderRequest } from './http.js';
@@ -42,8 +42,8 @@ let cached: RenderDeps | undefined;
 function deps(): RenderDeps {
   cached ??= {
     store: createDynamoPageStore(required('TABLE_NAME')),
-    // The apex domain the abuse mailbox lives on. The real one lands with P1.
-    siteDomain: process.env['SITE_DOMAIN'] ?? 'ourapp.com',
+    // `infra` always sets this; the fallback is for the local dev server.
+    siteDomain: process.env['SITE_DOMAIN'] ?? DEFAULT_SITE_DOMAIN,
   };
 
   return cached;

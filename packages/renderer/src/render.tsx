@@ -56,7 +56,7 @@ async function route(req: RenderRequest, deps: RenderDeps): Promise<RenderRespon
 
   switch (lookup.kind) {
     case 'visible':
-      return document(
+      return respond(
         <PageDocument page={lookup.page} links={lookup.links} siteDomain={deps.siteDomain} />,
       );
     case 'hidden':
@@ -88,9 +88,10 @@ function usernameFromPath(path: string): string | undefined {
 }
 
 function notFound(reason: NotFoundReason, username?: string): RenderResponse {
-  return document(<NotFoundDocument reason={reason} username={username} />, 404);
+  return respond(<NotFoundDocument reason={reason} username={username} />, 404);
 }
 
-function document(node: VNode, status = 200): RenderResponse {
+/** Every document the renderer emits leaves through here, at the Page's own freshness. */
+function respond(node: VNode, status = 200): RenderResponse {
   return htmlResponse(DOCTYPE + render(node), PAGE_CACHE_CONTROL, status);
 }

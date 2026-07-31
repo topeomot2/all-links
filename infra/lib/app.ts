@@ -1,3 +1,4 @@
+import { DEFAULT_SITE_DOMAIN } from '@all-links/core';
 import { Annotations, App } from 'aws-cdk-lib';
 
 import { AllLinksStack } from './all-links-stack.js';
@@ -32,11 +33,11 @@ export function buildApp(app: App = new App()): App {
   };
 
   /**
-   * The domain the abuse mailbox lives on (ADR-0010). Placeholder until P1
-   * registers the real one — an unroutable address here would be worse than a
-   * wrong one, because the footer link is a public product surface.
+   * The domain the abuse mailbox lives on (ADR-0010). `core` holds the
+   * placeholder until P1 registers the real one, so the renderer's own
+   * fallback and this one cannot drift apart.
    */
-  const siteDomain = configured('siteDomain', process.env['SITE_DOMAIN']) ?? 'ourapp.com';
+  const siteDomain = configured('siteDomain', process.env['SITE_DOMAIN']) ?? DEFAULT_SITE_DOMAIN;
 
   const dev = new AllLinksStack(app, 'AllLinks-dev', {
     stage: 'dev',

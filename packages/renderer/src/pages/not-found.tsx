@@ -1,7 +1,7 @@
-import { DEFAULT_THEME_ID, themeById, themeVariables } from '@all-links/core';
+import { DEFAULT_THEME_ID, themeById } from '@all-links/core';
 import type { VNode } from 'preact';
 
-import { BASE_CSS, Document } from './document.js';
+import { Document } from './document.js';
 
 /**
  * Why there is no Page at this address (spec §6.6). Every one of these is a
@@ -29,13 +29,19 @@ export interface NotFoundDocumentProps {
 }
 
 export function NotFoundDocument({ reason, username }: NotFoundDocumentProps) {
-  const css = `:root{${themeVariables(themeById(DEFAULT_THEME_ID))}}${BASE_CSS}${NOT_FOUND_CSS}`;
-
+  // A placeholder is not a Page, so it gets the default Theme rather than a
+  // creator's — there is no creator here to have chosen one.
+  //
   // `noindex` on every placeholder (ADR-0011). The 404 already keeps them out
   // of most indexes; the tag also covers the suspended case, which ADR-0010
   // invalidates precisely so it stops being served.
   return (
-    <Document title={TITLES[reason]} css={css} robots="noindex">
+    <Document
+      title={TITLES[reason]}
+      theme={themeById(DEFAULT_THEME_ID)}
+      css={NOT_FOUND_CSS}
+      robots="noindex"
+    >
       <main>{BODIES[reason](username ?? '')}</main>
     </Document>
   );
@@ -89,7 +95,6 @@ const BODIES: Record<NotFoundReason, (username: string) => VNode> = {
 
 const NOT_FOUND_CSS = `
 main{margin-top:4rem}
-h1{font-size:1.5rem;letter-spacing:-0.01em;margin:0 0 0.75rem;overflow-wrap:anywhere}
 p{margin:0 0 1rem;color:var(--muted)}
 .handle{color:var(--text);font-weight:600}
 .cta{
@@ -101,6 +106,5 @@ background:var(--accent);
 color:var(--on-accent);
 text-decoration:none;
 font-weight:600;
-overflow-wrap:anywhere;
 }
 `;

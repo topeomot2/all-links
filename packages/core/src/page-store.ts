@@ -55,20 +55,24 @@ export function createPageStore({ client, tableName }: PageStoreOptions): PageSt
         }),
       );
 
-      return classify(result.Items ?? []);
+      return toPageLookup(result.Items ?? []);
     },
   };
 }
 
-/**
- * DynamoDB hands back untyped attribute bags. This is the one place the stored
- * shape is asserted, so the rest of the read path works in domain types — the
- * items came from `core`'s own key builders and writers, and there is no
- * validation a public render could usefully do with a malformed one anyway.
- */
+/** What DynamoDB actually returns: an untyped attribute bag per item. */
 type Attributes = Record<string, unknown>;
 
-function classify(items: Attributes[]): PageLookup {
+/**
+ * Sorts one query's items into the answer the public read path needs.
+ *
+ * The casts here are the one place the stored shape is asserted. Every item in
+ * this partition was written through `core`'s own key builders, and there is
+ * nothing useful a public render could do with a malformed one anyway — so the
+ * trust boundary is drawn once, and the rest of the read path works in domain
+ * types.
+ */
+function toPageLookup(items: Attributes[]): PageLookup {
   const page = items.find(isPage) as PageItem | undefined;
   if (!page) return { kind: 'absent' };
   if (!isPubliclyVisible(page)) return { kind: 'hidden' };

@@ -1,7 +1,7 @@
 import type { LinkItem, PageItem } from '@all-links/core';
-import { themeById, themeVariables } from '@all-links/core';
+import { themeById } from '@all-links/core';
 
-import { BASE_CSS, Document } from './document.js';
+import { Document } from './document.js';
 
 export interface PageDocumentProps {
   page: PageItem;
@@ -20,11 +20,10 @@ export interface PageDocumentProps {
  * land on this surface.
  */
 export function PageDocument({ page, links, siteDomain }: PageDocumentProps) {
-  const theme = themeById(page.themeId);
-  const name = page.displayName || page.username;
+  const name = displayNameOf(page);
 
   return (
-    <Document title={name} css={`:root{${themeVariables(theme)}}${BASE_CSS}${PAGE_CSS}`}>
+    <Document title={pageTitle(page)} theme={themeById(page.themeId)} css={PAGE_CSS}>
       <main>
         <Avatar page={page} />
         <h1>{name}</h1>
@@ -105,8 +104,28 @@ function Avatar({ page }: { page: PageItem }) {
  * script yields a whole glyph instead of half a surrogate pair.
  */
 function monogram(page: PageItem): string {
-  const source = page.displayName?.trim() || page.username;
-  return [...source][0]?.toUpperCase() ?? '';
+  return [...displayNameOf(page)][0]?.toUpperCase() ?? '';
+}
+
+/**
+ * `displayName` is required on a Page, but the item came off the wire as an
+ * untyped attribute bag and the minimum profile is username-only — so an empty
+ * one falls back rather than rendering a blank heading and a blank monogram.
+ */
+function displayNameOf(page: PageItem): string {
+  return page.displayName?.trim() || page.username;
+}
+
+/**
+ * ADR-0011 fixes the title as the display name, plus ` (@username)` **only
+ * when the two differ** — so a Page that never set one is not titled
+ * `jane (@jane)`. T6 reuses this for `og:title` and `twitter:title`, which
+ * carry the same value.
+ */
+export function pageTitle(page: PageItem): string {
+  const name = displayNameOf(page);
+
+  return name === page.username ? name : `${name} (@${page.username})`;
 }
 
 const PAGE_CSS = `
@@ -129,8 +148,7 @@ font-weight:600;
 line-height:1;
 user-select:none;
 }
-h1{font-size:1.5rem;letter-spacing:-0.01em;margin:0 0 0.5rem;overflow-wrap:anywhere}
-.bio{margin:0 auto 2rem;max-width:30rem;color:var(--muted);overflow-wrap:anywhere}
+.bio{margin:0 auto 2rem;max-width:30rem;color:var(--muted)}
 .links{list-style:none;margin:2rem 0 0;padding:0;display:grid;gap:0.75rem}
 .links a{
 display:block;
@@ -141,7 +159,6 @@ color:var(--text);
 text-decoration:none;
 font-weight:500;
 border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
-overflow-wrap:anywhere;
 }
 .links a:hover,.links a:focus-visible{border-color:var(--accent)}
 footer{margin-top:3rem;font-size:0.8125rem}
