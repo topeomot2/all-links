@@ -35,6 +35,18 @@ describe('the renderer', () => {
     expect(body).toMatch(/<style>/i);
   });
 
+  it('names itself with the configured origin, not the host it was reached on', () => {
+    process.env['SITE_ORIGIN'] = 'https://dev.linkix.io';
+    try {
+      const { body } = handleRequest(request({ path: '/jane' }));
+
+      expect(body).toContain('<link rel="canonical" href="https://dev.linkix.io/jane"');
+      expect(body).toContain('property="og:url" content="https://dev.linkix.io/jane"');
+    } finally {
+      delete process.env['SITE_ORIGIN'];
+    }
+  });
+
   it('serves a HEAD like its GET but without the body', () => {
     const head = handleRequest(request({ method: 'HEAD', path: '/jane' }));
     const get = handleRequest(request({ method: 'GET', path: '/jane' }));

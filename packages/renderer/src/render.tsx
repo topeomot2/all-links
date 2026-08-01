@@ -1,5 +1,6 @@
 import { render } from 'preact-render-to-string';
 
+import { canonicalUrl } from './config.js';
 import {
   htmlResponse,
   methodNotAllowed,
@@ -32,5 +33,5 @@ export function handleRequest(req: RenderRequest): RenderResponse {
 
 function renderSkeleton(path: string): string {
   const stage = process.env['STAGE'] ?? 'local';
-  return DOCTYPE + render(<Skeleton path={path} stage={stage} />);
+  return DOCTYPE + render(<Skeleton path={path} stage={stage} canonical={canonicalUrl(path)} />);
 }
