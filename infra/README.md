@@ -35,6 +35,82 @@ context (`-c alertEmail=…`) or `$ALERT_EMAIL`.
 Region defaults to `us-east-1`; override with `-c region=…` or
 `$CDK_DEFAULT_REGION`. One region, per ADR-0001.
 
+## The domain is one configured value
+
+`baseDomain` (context, or `$BASE_DOMAIN`) defaults to the registered apex,
+**`linkix.io`**. Each stage derives its hostname from it and nothing else:
+
+| Stage | Hostname | `SITE_ORIGIN` given to the renderer |
+|---|---|---|
+| `prod` | `linkix.io` | `https://linkix.io` |
+| `dev` | `dev.linkix.io` | `https://dev.linkix.io` |
+
+The renderer cannot work its own hostname out. CloudFront reaches it over a
+Function URL — so the `Host` it sees is `*.lambda-url.*.on.aws` — and ADR-0004
+keeps `Host` out of the cache key, because forwarding it would fragment every
+cached Page across apex and `www`. The stack therefore injects `SITE_ORIGIN`,
+and `packages/renderer/src/config.ts` is the only thing that reads it:
+canonical URLs and `og:url` (ADR-0011) are built there.
+
+Dev gets a real subdomain rather than borrowing the distribution's generated
+`*.cloudfront.net` name for the same reason it cannot be inferred: passing that
+name into the Lambda's environment would make the function depend on the
+distribution that already depends on the function.
+
+### Certificate, aliases and DNS
+
+Two more values in `cdk.json` turn the hostname on, and both stages share them:
+
+| Context | Value | Why it is an id, not a lookup |
+|---|---|---|
+| `certificateArn` | the wildcard ACM cert (`linkix.io` + `*.linkix.io`), **us-east-1** | `Certificate.fromCertificateArn` needs no credentials, so CI still synths without AWS |
+| `hostedZoneId` | the public zone for `baseDomain` | same reason — `HostedZone.fromLookup` would need an account and a credentialed synth |
+
+With both present a stage gets: the alias on its distribution, the certificate,
+and `A` + `AAAA` alias records at its hostname. With either missing the stage
+falls back to its generated CloudFront hostname and synth says so. `SiteUrl`
+(where the stack answers) and `SiteOrigin` (what the renderer calls itself) are
+both outputs, and are the same thing only once the domain is wired.
+
+`www` is prod-only and is **not** an alias on the page distribution — it is an
+S3 website-redirect bucket behind its own small distribution (`HttpsRedirect`),
+because aliasing it here would force `Host` into the public cache key
+(ADR-0013). The wildcard cert covers it, so it needs no second certificate.
+
+### The DNS records, and who owns each
+
+`linkix.io` is a Route 53 public zone (`Z05137581JRU2TJI2GT7A`) in the same
+account as the stacks, with the registrar's nameservers already delegated to
+it. Everything below the delegation is CloudFormation's:
+
+| Record | Type | Points at | Created by |
+|---|---|---|---|
+| `dev.linkix.io` | `A` + `AAAA` alias | the dev page distribution | `AllLinks-dev` — **deployed** |
+| `linkix.io` | `A` + `AAAA` alias | the prod page distribution | `AllLinks-prod` — at launch |
+| `www.linkix.io` | `A` + `AAAA` alias | the `www` redirect distribution | `AllLinks-prod` — at launch |
+| `_ec1ed793….linkix.io` | `CNAME` | ACM validation | issued by hand; **leave it** — deleting it breaks certificate renewal |
+| `linkix.io` | `NS`, `SOA` | — | the zone itself |
+
+**The apex and `www` do not resolve until `AllLinks-prod` is deployed.** That
+is one command with no manual DNS step: the same `certificateArn` and
+`hostedZoneId` already in `cdk.json` create both hostnames' records and the
+redirect distribution.
+
+**Nothing should be added here by hand.** Three alias records and three
+distribution aliases were once set in the console; because CloudFormation
+issues `CREATE` and not `UPSERT` for a `RecordSet`, a manual record at a name a
+stack owns fails the deploy that would have created it — and a manual alias on
+a CDK-managed distribution is silently dropped by the next deploy. Both were
+removed when the domain was wired.
+
+Launch checklist, in order:
+
+1. `cdk deploy AllLinks-prod` — creates the apex and `www` records.
+2. `./tools/verify-deployment.sh AllLinks-prod`.
+3. `curl -sI https://www.linkix.io/` returns **301** to `https://linkix.io/`.
+4. Check a live Page in Meta's sharing debugger (spec §10 item 13) — the first
+   moment `og:url` and `og:image` can be verified against a real hostname.
+
 `tools/verify-deployment.sh` checks the two things only a deployed stack can
 answer: the site returns renderer HTML and a second request is a CloudFront
 `HIT`, and the Function URL returns **403** when hit directly.
@@ -123,6 +199,8 @@ until these repository variables exist:
 | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123456789012:role/all-links-deploy-dev` |
 | `AWS_REGION` | `us-east-1` |
 | `ALERT_EMAIL` | `you@example.com` |
+
+`BASE_DOMAIN` is optional — unset, it is `linkix.io`.
 
 Create the provider and role once, by hand, in the target account — it is the
 credential the pipeline needs before the pipeline exists:

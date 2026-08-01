@@ -14,6 +14,9 @@
     ]
   },
   "context": {
+    "baseDomain": "linkix.io",
+    "hostedZoneId": "Z05137581JRU2TJI2GT7A",
+    "certificateArn": "arn:aws:acm:us-east-1:481665100036:certificate/3e0a28db-2bdb-45c2-a936-0c71e844b50f",
     "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogDriver": true,
     "@aws-cdk/aws-apigateway:authorizerChangeDeploymentLogicalId": true,
     "@aws-cdk/aws-apigateway:disableCloudWatchRole": true,

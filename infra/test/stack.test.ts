@@ -126,6 +126,27 @@ describe('the renderer function', () => {
       },
     });
   });
+
+  // It is reached over a Function URL and ADR-0004 forwards no `Host`, so the
+  // canonical origin has to be injected — one configured base domain, two
+  // stages (#27).
+  it('is told the origin it serves, because it cannot infer one', () => {
+    dev.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ SITE_ORIGIN: 'https://dev.linkix.io' }) },
+    });
+    prod.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ SITE_ORIGIN: 'https://linkix.io' }) },
+    });
+  });
+
+  it('takes the domain from configuration, so one value moves both stages', () => {
+    const overridden = buildApp(new App({ context: { baseDomain: 'example.test' } }));
+
+    Template.fromStack(overridden.node.findChild('AllLinks-dev') as never).hasResourceProperties(
+      'AWS::Lambda::Function',
+      { Environment: { Variables: Match.objectLike({ SITE_ORIGIN: 'https://dev.example.test' }) } },
+    );
+  });
 });
 
 describe('the distribution', () => {
@@ -165,11 +186,86 @@ describe('the distribution', () => {
   });
 });
 
+describe('the site domain', () => {
+  // Values shaped like the real ones; the real ones live in cdk.json, which a
+  // test never reads.
+  const wired = buildApp(
+    new App({
+      context: {
+        baseDomain: 'example.test',
+        certificateArn: 'arn:aws:acm:us-east-1:111122223333:certificate/11111111-2222-3333-4444-555555555555',
+        hostedZoneId: 'Z0000000000000000000',
+      },
+    }),
+  );
+  const wiredDev = Template.fromStack(wired.node.findChild('AllLinks-dev') as never);
+  const wiredProd = Template.fromStack(wired.node.findChild('AllLinks-prod') as never);
+
+  it('serves each stage under the wildcard certificate', () => {
+    wiredDev.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Aliases: ['dev.example.test'],
+        ViewerCertificate: Match.objectLike({
+          AcmCertificateArn: Match.stringLikeRegexp('^arn:aws:acm:us-east-1:'),
+        }),
+      }),
+    });
+  });
+
+  it('points the hostname at the distribution over both IPv4 and IPv6', () => {
+    for (const type of ['A', 'AAAA']) {
+      wiredDev.hasResourceProperties('AWS::Route53::RecordSet', {
+        Type: type,
+        Name: 'dev.example.test.',
+        AliasTarget: Match.anyValue(),
+      });
+    }
+  });
+
+  it('keeps `www` off the page distribution — an alias there would key on Host', () => {
+    const aliases = Object.values(wiredProd.findResources('AWS::CloudFront::Distribution'))
+      .flatMap((d) => d.Properties?.DistributionConfig?.Aliases ?? [])
+      .filter((alias: string) => alias.startsWith('www.'));
+
+    // `www` is served, but by the redirect distribution, not this one.
+    wiredProd.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({ Aliases: ['example.test'] }),
+    });
+    expect(aliases).toEqual(['www.example.test']);
+    wiredProd.resourceCountIs('AWS::CloudFront::Distribution', 2);
+  });
+
+  it('redirects `www` from an S3 website bucket, not from code (ADR-0013)', () => {
+    wiredProd.hasResourceProperties('AWS::S3::Bucket', {
+      WebsiteConfiguration: {
+        RedirectAllRequestsTo: { HostName: 'example.test', Protocol: 'https' },
+      },
+    });
+  });
+
+  it('gives dev no `www` — nobody types www.dev', () => {
+    wiredDev.resourceCountIs('AWS::CloudFront::Distribution', 1);
+    wiredDev.resourceCountIs('AWS::S3::Bucket', 0);
+  });
+
+  it('falls back to the CloudFront hostname when the domain is unconfigured', () => {
+    const bare = Template.fromStack(
+      buildApp(new App({ context: { certificateArn: '', hostedZoneId: '' } })).node.findChild(
+        'AllLinks-dev',
+      ) as never,
+    );
+    const distribution = Object.values(bare.findResources('AWS::CloudFront::Distribution'))[0];
+
+    expect(distribution?.Properties?.DistributionConfig?.Aliases).toBeUndefined();
+    bare.resourceCountIs('AWS::Route53::RecordSet', 0);
+  });
+});
+
 describe('empty context', () => {
   // CI passes `-c alertEmail=${{ vars.ALERT_EMAIL }}`, which becomes a literal
   // `-c alertEmail=` when the repository variable is unset. Empty is missing.
   const empty = () =>
-    buildApp(new App({ context: { alertEmail: '', region: '' } })).node.findChild(
+    buildApp(new App({ context: { alertEmail: '', region: '', baseDomain: '' } })).node.findChild(
       'AllLinks-dev',
     ) as never;
 
@@ -187,6 +283,12 @@ describe('empty context', () => {
 
   it('still resolves a region', () => {
     expect((empty() as unknown as Stack).region).toBe('us-east-1');
+  });
+
+  it('never hands the renderer a half-built origin', () => {
+    Template.fromStack(empty()).hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ SITE_ORIGIN: 'https://dev.linkix.io' }) },
+    });
   });
 });
 

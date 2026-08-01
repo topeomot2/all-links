@@ -8,9 +8,11 @@
 export interface SkeletonProps {
   path: string;
   stage: string;
+  /** Absolute URL for this path, built from the stage's configured origin. */
+  canonical: string;
 }
 
-export function Skeleton({ path, stage }: SkeletonProps) {
+export function Skeleton({ path, stage, canonical }: SkeletonProps) {
   return (
     <html lang="en">
       <head>
@@ -18,6 +20,10 @@ export function Skeleton({ path, stage }: SkeletonProps) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>All-Links</title>
         <meta name="robots" content="noindex" />
+        {/* The shape ADR-0011 fixes for a real Page; the skeleton emits it so
+            the configured origin has a consumer before T2 needs one. */}
+        <link rel="canonical" href={canonical} />
+        <meta property="og:url" content={canonical} />
         <style>{CSS}</style>
       </head>
       <body>
