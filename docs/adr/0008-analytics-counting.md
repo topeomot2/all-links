@@ -139,7 +139,7 @@ A sixth behavior joins the single distribution:
 
 **Accepted tradeoffs**
 
-- **The destination URL is hidden** behind `ourapp.com/r/…` on hover and in the status bar. Standard for link-in-bio products, but it is a genuine transparency cost.
+- **The destination URL is hidden** behind `linkix.io/r/…` on hover and in the status bar. Standard for link-in-bio products, but it is a genuine transparency cost.
 - **Every outbound link now depends on the counter Lambda.** If it is down, links do not merely go uncounted — they do not work. This is the price of an authoritative count, and it is why the write is best-effort: a *database* failure must still redirect.
 - **Latency on the click path** — one GSI1 query plus one write, ~100 ms warm, 200–500 ms on a cold start. Shared warmth with `/px` mitigates it; it is not eliminated.
 - **Three requests per page view**, where ADR-0004 budgeted two.

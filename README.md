@@ -1,7 +1,7 @@
 # All-Links
 
 A cheap, serverless "link in bio" product: each Account has one public Page at
-`ourapp.com/<username>` listing a creator's Links.
+`linkix.io/<username>` listing a creator's Links.
 
 - **Vocabulary:** [`CONTEXT.md`](CONTEXT.md) — read this before naming anything.
 - **What we're building:** [`docs/spec/v1-mvp-spec.md`](docs/spec/v1-mvp-spec.md).

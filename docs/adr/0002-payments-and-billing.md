@@ -42,7 +42,7 @@ Consequence: **every account has a subscription object from the moment it exists
 
 ### Subscription state → public page visibility
 
-| Subscription status | Public page at `ourapp.com/<username>` |
+| Subscription status | Public page at `linkix.io/<username>` |
 |---|---|
 | `trialing` | Live |
 | `active` | Live |

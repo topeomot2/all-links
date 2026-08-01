@@ -38,7 +38,7 @@ export interface AccountItem extends AccountKey {
   heldUsername?: string;
 }
 
-/** The public artifact at `ourapp.com/<username>`. */
+/** The public artifact at `linkix.io/<username>`. */
 export interface PageItem extends PageKey {
   accountId: string;
   username: string;

@@ -1,6 +1,6 @@
 # All-Links
 
-A cheap, serverless "link in bio" product: each Account has one public Page at `ourapp.com/<username>` listing a creator's Links, handed out as a single address instead of one link per platform.
+A cheap, serverless "link in bio" product: each Account has one public Page at `linkix.io/<username>` listing a creator's Links, handed out as a single address instead of one link per platform.
 
 ## Language
 
@@ -9,7 +9,7 @@ The authenticated, billable entity. Owns login credentials and Subscription stat
 _Avoid_: User, Creator, Profile
 
 **Page**:
-The public artifact at `ourapp.com/<username>` — a display name, avatar, bio, Theme, and an ordered list of Links. A distinct concern from the Account (public presentation vs. private auth/billing), though 1:1 with it in v1.
+The public artifact at `linkix.io/<username>` — a display name, avatar, bio, Theme, and an ordered list of Links. A distinct concern from the Account (public presentation vs. private auth/billing), though 1:1 with it in v1.
 _Avoid_: Site, Profile, Bio
 
 **Link**:
@@ -17,7 +17,7 @@ An ordered, labeled destination shown on a Page (a label + a URL), carrying its 
 _Avoid_: Button, Item
 
 **Username**:
-The public handle that forms a Page's URL slug (`ourapp.com/<username>`). Unique across the system, lowercase-canonical, 3–30 characters of `a-z 0-9 - _`; changeable by Rename (a rename breaks old URLs in v1).
+The public handle that forms a Page's URL slug (`linkix.io/<username>`). Unique across the system, lowercase-canonical, 3–30 characters of `a-z 0-9 - _`; changeable by Rename (a rename breaks old URLs in v1).
 _Avoid_: Handle, Slug
 
 **Claim**:
