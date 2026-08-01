@@ -18,7 +18,7 @@ The denylist stops a creator *claiming* the name `terms`. It does nothing about 
 
 So as inherited, the product's front door answers:
 
-> **`ourapp.com/`** — "this name is available — claim it."
+> **`linkix.io/`** — "this name is available — claim it."
 
 A product competing on price, whose entire funnel is one signup, offers visitors the empty username. Assembly (S1, §11.2) surfaced this as one of three things no ticket owned, and called it plainly: *not shippable*.
 
@@ -85,7 +85,7 @@ A day-long TTL was rejected in both forms: **without** invalidation, a wrong pri
 
 ### Reserved names answer honestly
 
-Seven reserved names ship **unrouted**. The defect here is narrower than S1 §11.2 reported, and more characteristic: **ADR-0004's negative-path table already has a "Username reserved → neutral body, no CTA" row.** It was written *before* ADR-0007 created the reserved `Set`, and **no ADR ever said the renderer consults it.** The case was named, the data was built, and nothing joined them — so the observed behaviour is the unclaimed placeholder, and `ourapp.com/login` answers *"the name `login` is available — claim it."* That is false: it is reserved and unclaimable. (ADR-0007's "reserved and taken produce distinct error copy" governs the **dashboard availability check**, not the public 404.)
+Seven reserved names ship **unrouted**. The defect here is narrower than S1 §11.2 reported, and more characteristic: **ADR-0004's negative-path table already has a "Username reserved → neutral body, no CTA" row.** It was written *before* ADR-0007 created the reserved `Set`, and **no ADR ever said the renderer consults it.** The case was named, the data was built, and nothing joined them — so the observed behaviour is the unclaimed placeholder, and `linkix.io/login` answers *"the name `login` is available — claim it."* That is false: it is reserved and unclaimable. (ADR-0007's "reserved and taken produce distinct error copy" governs the **dashboard availability check**, not the public 404.)
 
 ADR-0013 makes the join explicit, and adds redirects where a 404 is the wrong answer:
 
@@ -109,13 +109,13 @@ Both live in `core`, which already holds the username regex and the reserved Set
 
 ### `www` redirects to the apex
 
-`www.ourapp.com` is served by **a second, small distribution whose origin is an S3 bucket configured to redirect all requests to `ourapp.com`**. Zero code, zero runtime, a stock AWS pattern, ~$0.
+`www.linkix.io` is served by **a second, small distribution whose origin is an S3 bucket configured to redirect all requests to `linkix.io`**. Zero code, zero runtime, a stock AWS pattern, ~$0.
 
 The reason it cannot be done on the main distribution is specific and load-bearing: **ADR-0004's default behavior forwards no cookies and does not key on `Host`.** Adding `www` as an alias there would require either putting `Host` in the cache key — fragmenting every cached Page across two hostnames, doubling origin fetches to serve identical bytes — or a CloudFront Function running ahead of cache lookup, which is a new deploy unit and an adapter in front of routing, the shape ADR-0006 rejected meta-frameworks for.
 
 A separate distribution keeps the main one's cache key exactly as ADR-0004 designed it. The price is one more certificate SAN and a CDK construct.
 
-Apex-only was rejected: `www.ourapp.com` would be a hard DNS failure with no page to explain it, on a product whose value is people typing an address.
+Apex-only was rejected: `www.linkix.io` would be a hard DNS failure with no page to explain it, on a product whose value is people typing an address.
 
 ### Indexing
 

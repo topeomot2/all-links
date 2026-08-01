@@ -33,7 +33,7 @@ Working in our favour and already paid for: **card up front** (ADR-0002). Every 
 
 A suspension is followed by a **CloudFront invalidation of that one path** — this is the "rare exceptional event" ADR-0004 reserved invalidation for, and now the only thing that triggers one. Without it a suspended Page stays served for up to 60 s; with it the takedown is immediate. Volume sits far inside the free 1,000 paths/month.
 
-**Reports arrive by email.** Every public Page carries a small footer line linking `mailto:abuse@ourapp.com?subject=Report: <username>`. This is the only intake channel: it adds no endpoint, no form, no unauthenticated write path, and no runtime to a document ADR-0004 deliberately kept runtime-free. The subject line carries the username, so triage is a mail filter. The founder judges reports personally; there is no SLA, no queue tooling, and no appeals process beyond replying to the mail.
+**Reports arrive by email.** Every public Page carries a small footer line linking `mailto:abuse@linkix.io?subject=Report: <username>`. This is the only intake channel: it adds no endpoint, no form, no unauthenticated write path, and no runtime to a document ADR-0004 deliberately kept runtime-free. The subject line carries the username, so triage is a mail filter. The founder judges reports personally; there is no SLA, no queue tooling, and no appeals process beyond replying to the mail.
 
 **Suspending an Account does three things**, in this order:
 
