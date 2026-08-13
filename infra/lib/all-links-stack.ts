@@ -2,8 +2,16 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 
 import { GSI1_PROJECTED_ATTRIBUTES } from '@all-links/core';
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import {
+  Annotations,
+  CfnOutput,
+  Duration,
+  RemovalPolicy,
+  Stack,
+  type StackProps,
+} from 'aws-cdk-lib';
 import { CfnBudget } from 'aws-cdk-lib/aws-budgets';
+import { Certificate, type ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import {
   AllowedMethods,
   CachePolicy,
@@ -27,6 +35,9 @@ import {
 import { Architecture, FunctionUrlAuthType, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
+import { HttpsRedirect } from 'aws-cdk-lib/aws-route53-patterns';
+import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import type { Construct } from 'constructs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,11 +50,32 @@ export interface AllLinksStackProps extends StackProps {
   /** Where the mandatory Budgets alarm mails (ADR-0001). */
   alertEmail: string;
   /**
-   * The apex domain every public Page's abuse mailto points at (ADR-0010).
-   * It is the renderer's only knowledge of where it is deployed; the real
-   * domain lands with P1.
+   * The hostname this stage is served on — `linkix.io` in prod,
+   * `dev.linkix.io` in dev (#27). Derived from one configured base domain in
+   * `app.ts`, and the only place a hostname enters the system: the renderer
+   * gets it as `SITE_ORIGIN`, and the certificate and CloudFront aliases will
+   * read the same prop.
    */
-  siteDomain: string;
+  domainName: string;
+  /**
+   * The registered apex, without any stage prefix (#27).
+   *
+   * Distinct from `domainName` on purpose: the abuse mailbox (ADR-0010) lives
+   * at the apex at every stage, so `dev` must advertise `abuse@linkix.io` and
+   * not `abuse@dev.linkix.io`, which nobody reads.
+   */
+  baseDomain: string;
+  /**
+   * The wildcard certificate covering the apex, `www` and every stage
+   * subdomain. Must live in us-east-1 — CloudFront reads it from nowhere else.
+   * Absent, the stage answers on its generated CloudFront hostname only.
+   */
+  certificateArn?: string | undefined;
+  /**
+   * The public zone for the base domain, by id — not by lookup, which would
+   * need credentials at synth time. Absent, DNS is a manual step.
+   */
+  hostedZone?: { id: string; name: string } | undefined;
   /** Monthly spend the budget is measured against, in USD. */
   monthlyBudgetUsd: number;
   /**
@@ -64,12 +96,16 @@ export interface AllLinksStackProps extends StackProps {
 export class AllLinksStack extends Stack {
   readonly table: Table;
   readonly distributionDomainName: string;
+  /** `https://<domainName>` — what this stage calls itself in a URL. */
+  readonly siteOrigin: string;
 
   constructor(scope: Construct, id: string, props: AllLinksStackProps) {
     super(scope, id, props);
 
     const { stage } = props;
     const isProd = stage === 'prod';
+
+    this.siteOrigin = `https://${props.domainName}`;
 
     // ---- Data ------------------------------------------------------------
     // One table, on-demand: no floor fee, scales to zero, cheap atomic
@@ -115,7 +151,13 @@ export class AllLinksStack extends Stack {
       environment: {
         STAGE: stage,
         TABLE_NAME: this.table.tableName,
-        SITE_DOMAIN: props.siteDomain,
+        // The renderer cannot learn its own hostname from the request: it is
+        // reached over a Function URL, and ADR-0004 keeps `Host` out of the
+        // cache key so CloudFront must not forward it. Canonical URLs and
+        // `og:url` (ADR-0011) come from here instead (#27).
+        SITE_ORIGIN: this.siteOrigin,
+        // The apex, for the abuse mailbox the Page footer links (ADR-0010).
+        BASE_DOMAIN: props.baseDomain,
         NODE_OPTIONS: '--enable-source-maps',
       },
       projectRoot: repoRoot,
@@ -164,8 +206,28 @@ export class AllLinksStack extends Stack {
       enableAcceptEncodingBrotli: true,
     });
 
+    // A stage answers on its own hostname only once both halves exist: the
+    // certificate CloudFront serves it under, and the alias records pointing
+    // at the distribution. Either alone is useless — aliases without a
+    // certificate are rejected outright, and records without aliases resolve
+    // to a distribution that 403s the host it was sent (#27).
+    const certificate: ICertificate | undefined = props.certificateArn
+      ? Certificate.fromCertificateArn(this, 'SiteCertificate', props.certificateArn)
+      : undefined;
+
+    const zone = props.hostedZone
+      ? HostedZone.fromHostedZoneAttributes(this, 'SiteZone', {
+          hostedZoneId: props.hostedZone.id,
+          zoneName: props.hostedZone.name,
+        })
+      : undefined;
+
     const distribution = new Distribution(this, 'Distribution', {
       comment: `all-links ${stage}`,
+      // `www` is deliberately not among them: an alias here would force `Host`
+      // into the cache key below, fragmenting every cached Page across two
+      // hostnames (ADR-0013). It gets its own distribution instead.
+      ...(certificate ? { domainNames: [props.domainName], certificate } : {}),
       // `/` must reach the renderer: DefaultRootObject would rewrite it to
       // /index.html and the renderer would look up that username (ADR-0013).
       defaultBehavior: {
@@ -181,6 +243,41 @@ export class AllLinksStack extends Stack {
     });
 
     this.distributionDomainName = distribution.distributionDomainName;
+
+    // ---- Names -----------------------------------------------------------
+    if (zone && certificate) {
+      const target = RecordTarget.fromAlias(new CloudFrontTarget(distribution));
+
+      new ARecord(this, 'SiteRecord', { zone, recordName: props.domainName, target });
+      // CloudFront answers on IPv6 whether or not anything points at it; an
+      // AAAA-only client is otherwise a silent failure.
+      new AaaaRecord(this, 'SiteRecordIpv6', { zone, recordName: props.domainName, target });
+
+      // `www` → apex, an S3 website-redirect bucket behind its own small
+      // distribution (ADR-0013). Prod only: `www.dev` is not a thing anyone
+      // types, and the pattern costs a distribution per use.
+      if (isProd) {
+        new HttpsRedirect(this, 'WwwRedirect', {
+          zone,
+          certificate,
+          targetDomain: props.domainName,
+          recordNames: [`www.${props.domainName}`],
+        });
+      }
+    } else {
+      Annotations.of(this).addInfoV2(
+        'all-links:site-domain',
+        `${props.domainName} is not wired up: this stage answers on its CloudFront hostname ` +
+          'only. Needs both `-c certificateArn=…` (us-east-1) and `-c hostedZoneId=…` (#27).',
+      );
+    }
+
+    if (certificate && this.region !== 'us-east-1') {
+      Annotations.of(this).addWarningV2(
+        'all-links:certificate-region',
+        `CloudFront reads certificates from us-east-1 only, and this stack is in ${this.region}.`,
+      );
+    }
 
     // ---- Cost ceiling ----------------------------------------------------
     // Mandatory per ADR-0001: egress past CloudFront's 1 TB free tier is the
@@ -218,6 +315,12 @@ export class AllLinksStack extends Stack {
     new CfnOutput(this, 'SiteUrl', {
       value: `https://${distribution.distributionDomainName}`,
       description: 'Public entry point for this stage',
+    });
+    // Until the certificate and aliases land, this is what the renderer claims
+    // in its canonical URLs, not where the distribution actually answers.
+    new CfnOutput(this, 'SiteOrigin', {
+      value: this.siteOrigin,
+      description: 'Canonical origin the renderer emits — the DNS target for this stage',
     });
     new CfnOutput(this, 'RendererFunctionUrl', {
       value: rendererUrl.url,

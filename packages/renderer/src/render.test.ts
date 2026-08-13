@@ -47,7 +47,7 @@ function deps(lookup: PageLookup): RenderDeps & { lookedUp: string[] } {
       return Promise.resolve(lookup);
     },
   };
-  return { store, siteDomain: 'ourapp.com', lookedUp };
+  return { store, lookedUp };
 }
 
 const visible = (links: LinkItem[] = [], overrides: Partial<PageItem> = {}): PageLookup => ({
@@ -83,6 +83,20 @@ describe('a visible Page', () => {
     await handleRequest(request({ path: '/jane' }), d);
 
     expect(d.lookedUp).toEqual(['jane']);
+  });
+
+  it('names itself with the configured origin, not the host it was reached on', async () => {
+    process.env['SITE_ORIGIN'] = 'https://dev.linkix.io';
+    try {
+      // Requested as `/Jane`: the canonical URL is built from the stored
+      // Username, so one Page has one canonical URL however it was reached.
+      const { body } = await render(visible(), { path: '/Jane' });
+
+      expect(body).toContain('<link rel="canonical" href="https://dev.linkix.io/jane"');
+      expect(body).toContain('property="og:url" content="https://dev.linkix.io/jane"');
+    } finally {
+      delete process.env['SITE_ORIGIN'];
+    }
   });
 
   it('titles the document `displayName (@username)`, but only when they differ (ADR-0011)', async () => {
@@ -165,7 +179,7 @@ describe('a visible Page', () => {
     const href = /href="(mailto:[^"]+)"/.exec(res.body)?.[1];
 
     expect(href).toBeDefined();
-    expect(decodeURIComponent(href!)).toBe('mailto:abuse@ourapp.com?subject=Report: jane');
+    expect(decodeURIComponent(href!)).toBe('mailto:abuse@linkix.io?subject=Report: jane');
   });
 
   it('serves a HEAD like its GET but without the body', async () => {
@@ -322,6 +336,9 @@ describe('the negative paths (spec §6.6)', () => {
 
       expect(res.body, path).toContain('name="robots"');
       expect(res.body, path).toContain('noindex');
+      // A 404 has no canonical form to point at, and naming one would invite
+      // exactly the indexing the `noindex` above exists to prevent.
+      expect(res.body, path).not.toContain('rel="canonical"');
     }
   });
 

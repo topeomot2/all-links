@@ -17,10 +17,16 @@ export interface DocumentProps {
   css: string;
   /** Omitted on a Page — Pages are `index,follow` (ADR-0011). */
   robots?: string;
+  /**
+   * The one URL this document wants to be known by (ADR-0011). Omitted on the
+   * placeholders: they are `noindex`, and a 404 has no canonical form to point
+   * at. T6 hangs the rest of the unfurl tags off the same value.
+   */
+  canonical?: string;
   children: ComponentChildren;
 }
 
-export function Document({ title, theme, css, robots, children }: DocumentProps) {
+export function Document({ title, theme, css, robots, canonical, children }: DocumentProps) {
   return (
     <html lang="en">
       <head>
@@ -28,6 +34,12 @@ export function Document({ title, theme, css, robots, children }: DocumentProps)
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title}</title>
         {robots ? <meta name="robots" content={robots} /> : null}
+        {canonical ? (
+          <>
+            <link rel="canonical" href={canonical} />
+            <meta property="og:url" content={canonical} />
+          </>
+        ) : null}
         <style>{`:root{${themeVariables(theme)}}${BASE_CSS}${css}`}</style>
       </head>
       <body>{children}</body>

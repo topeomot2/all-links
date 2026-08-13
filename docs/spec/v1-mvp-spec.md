@@ -20,7 +20,7 @@ This is a **synthesis**, not a new decision. It folds the thirteen ADRs and the 
 
 A "link in bio" page: one address a creator hands out instead of one link per platform.
 
-**Public artifact** — `ourapp.com/<username>`: display name, avatar, bio line, and an ordered list of labeled Links, in one of a few preset Themes.
+**Public artifact** — `linkix.io/<username>`: display name, avatar, bio line, and an ordered list of labeled Links, in one of a few preset Themes.
 
 **Creator loop** — sign up → claim username → pay → add/edit/reorder/delete Links, edit profile → one shareable URL.
 
@@ -30,7 +30,7 @@ A "link in bio" page: one address a creator hands out instead of one link per pl
 
 | | |
 |---|---|
-| Address | Path-based, `ourapp.com/<username>`. One Page per Account. |
+| Address | Path-based, `linkix.io/<username>`. One Page per Account. |
 | Auth | Passwordless email OTP (Cognito). |
 | Billing | 5-day trial, **card up front**; $20/yr default or $2.99/mo. No free tier. |
 | Analytics | Per-Link click totals + per-Page view totals. Lifetime, monotonic, approximate. |
@@ -164,7 +164,7 @@ This is not a shortcut. Invalidating per edit costs **~$250/mo at 10k Accounts e
 | `/i/*` (unfurl image — ADR-0011) | **renderer Lambda** (FURL + OAC) | `s-maxage=60` |
 | `/*` **(default)** | **renderer Lambda** (FURL + OAC) | `s-maxage=60`, **no cookies forwarded** |
 
-> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/`, `/terms`, `/privacy`, `/robots.txt` and `/og-card.png` need **no behavior at all** — **ADR-0013** serves them from a static route table in `core`, checked by the renderer before the username lookup, at `s-maxage=300`. See [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site--resolved-by-adr-0013), now resolved. `www.ourapp.com` is a **separate** distribution (S3 website-redirect → apex), deliberately not an alias here — an alias would put `Host` in this behavior's cache key.
+> The `/a/*` avatar behavior and its S3 bucket that ADR-0004 originally specified were **removed by ADR-0009**; `/i/*` (ADR-0011) is **not** its return — it is a renderer route reading the same Page item, fetched by unfurlers once per share, not by browsers per view. `/`, `/terms`, `/privacy`, `/robots.txt` and `/og-card.png` need **no behavior at all** — **ADR-0013** serves them from a static route table in `core`, checked by the renderer before the username lookup, at `s-maxage=300`. See [§11.2](#112-nothing-serves-terms-privacy-or-the-marketing-site--resolved-by-adr-0013), now resolved. `www.linkix.io` is a **separate** distribution (S3 website-redirect → apex), deliberately not an alias here — an alias would put `Host` in this behavior's cache key.
 
 The default behavior forwards **no cookies**, so dashboard sessions can never fragment the public cache. This is why the dashboard uses a `Bearer` token and not a session cookie. One distribution, one certificate, one deploy.
 
@@ -242,7 +242,7 @@ claim username          ← availability known HERE, before any payment
   ↓  writes the Username item only
 hosted checkout (card, 5-day trial)
   ↓  billing webhook: trialing
-Page created, active=true → live at ourapp.com/<username>
+Page created, active=true → live at linkix.io/<username>
   ↓
 editor, empty state prompting the first Link
 ```
@@ -462,7 +462,7 @@ Any lookup failure on `/r/*` — link deleted, Page inactive or suspended, usern
 
 ### Accepted costs
 
-- **The destination URL is hidden** behind `ourapp.com/r/…` on hover. Standard for the category, but a genuine transparency cost.
+- **The destination URL is hidden** behind `linkix.io/r/…` on hover. Standard for the category, but a genuine transparency cost.
 - **Every outbound link now depends on the counter Lambda.** If it is down, links do not merely go uncounted — they do not work. This is the price of an authoritative count, and it is why the *database* write is best-effort.
 - **~100 ms warm, 200–500 ms cold** on the click path. `/px` and `/r/*` share one Lambda partly so their combined traffic keeps it warm.
 - Counts are lost when a Link is deleted and recreated; a rename orphans in-flight cached `/r/<oldname>/…` links.
@@ -486,7 +486,7 @@ The dashboard reads both counts from the `Query PK=ACCOUNT#<id>` it already runs
 2. **Cancel the Subscription** with the merchant of record. Charging an account whose page has been pulled invites a dispute and is indefensible on its own terms.
 3. **Tombstone the Username** — **write `tombstonedAt` on the Username item** (ADR-0012), and the lazy harvest tests `attribute_not_exists(tombstonedAt)`. Without a tombstone, ADR-0002's 30-day release would hand the handle back to the same actor with a fresh email. Handles stay burnt until **manually** released, which is also the remedy in the impersonation case where the rightful owner wants the name. *ADR-0010 originally expressed this as a clause reading `suspendedAt` on the **Page**; [§6.8](#68-deletion-erasure-and-export--adr-0012) moved it onto the Username item, because erasure deletes the Page and the burnt handle must outlive it.*
 
-**Reports arrive by email.** Every public Page carries a footer line linking `mailto:abuse@ourapp.com?subject=Report: <username>`. This is the only intake channel — it adds no endpoint, no form, no unauthenticated write path and no runtime to a document kept deliberately runtime-free. The subject line carries the username, so triage is a mail filter. **The founder judges reports personally: no SLA, no queue tooling, no appeals beyond replying to the mail.**
+**Reports arrive by email.** Every public Page carries a footer line linking `mailto:abuse@linkix.io?subject=Report: <username>`. This is the only intake channel — it adds no endpoint, no form, no unauthenticated write path and no runtime to a document kept deliberately runtime-free. The subject line carries the username, so triage is a mail filter. **The founder judges reports personally: no SLA, no queue tooling, no appeals beyond replying to the mail.**
 
 **Phishing and shared domain reputation.** Path-based addressing means one domain's reputation is shared by every creator, and a blocklisting takes out signup and billing alongside the pages. Two things bound it. Structurally, `/r/*` is **not** an open redirector — the destination must be a Link a paying creator saved, resolved from DynamoDB, so no URL can be laundered through the domain without an account. On top, link create/update performs a **synchronous Google Safe Browsing Lookup** and refuses the save on a hit. It **fails open** on error or timeout, runs only on the authenticated dashboard path, never touches the public read path, and needs no review queue.
 
@@ -543,11 +543,11 @@ Work the map deliberately kept out of decision tickets. **None of these are deci
 
 | # | Item | Gates |
 |---|---|---|
-| 1 | **Register the base domain**; ACM certificate, DNS, TLS. `ourapp.com` is a placeholder in every ADR. | Everything |
+| 1 | ~~**Register the base domain**; ACM certificate, DNS, TLS.~~ **Done** (#27): `linkix.io`, a wildcard certificate covering the apex and every subdomain, and a Route 53 zone. The name is one configured value — `baseDomain` in `infra/cdk.json` — read by both the CDK app and the renderer's canonical URLs. `dev.linkix.io` is live; the apex and `www` records land with the prod deploy. | Everything |
 | 2 | **Verify Stripe Managed Payments** — preview eligibility for this account, support for a 5-day trial, support for the $2.99/mo and $20/yr SKUs, and go-live. **A failure on any of these fires the Lemon Squeezy fallback without reopening ADR-0002.** | §2, §6.1 |
 | 3 | **Confirm which Cognito trigger fires on each send under *managed* `EMAIL_OTP`.** If none does, fall back to proxying `InitiateAuth` through the api Lambda. The mechanism is decided either way — only the mounting point is unverified. | §8 |
 | 4 | **SES production access** + SPF/DKIM/DMARC on the sending domain. Passwordless puts email on the critical login path. | §6.1 |
-| 5 | **An inbox for `abuse@ourapp.com`** — SES receiving or a forwarding alias. The only report intake channel. | §8 |
+| 5 | **An inbox for `abuse@linkix.io`** — SES receiving or a forwarding alias. The only report intake channel. | §8 |
 | 6 | **Google Safe Browsing API key** and quota check. | §8 |
 | 7 | **Author `/terms`** (the AUP the suspend lever enforces, **plus the no-refund-on-deletion line** — §6.8), **`/privacy`** (the **six claims [§6.8](#68-deletion-erasure-and-export--adr-0012) specifies**, including the no-visitor-IPs commitment) **and the `/` landing page** — pitch, pricing, CTA to `/app/`. All three are components in the renderer (ADR-0013); **legal review of Terms and Privacy before launch.** | §8, §5, §6.8 |
 | 8 | **Register a DMCA designated agent** with the US Copyright Office — a $6 filing, and the precondition for safe harbour on a UGC product selling into the US. | §8 |
@@ -555,8 +555,8 @@ Work the map deliberately kept out of decision tickets. **None of these are deci
 | 10 | **Design the 4–6 preset Themes** (accent color, type, layout, monogram treatment) as CSS in `core`. | §6.5 |
 | 11 | **Write the suspend runbook script** — DynamoDB write (**including `tombstonedAt`** — §6.8) + MoR cancel + CloudFront invalidation (**both paths** — §6.7) in one command, so a 2am takedown is one command rather than three consoles. Same script gains `erase-account` and `export-account`. | §8, §6.8 |
 | 12 | **Design `/og-card.png`** — a square brand card, the `og:image` for every Page without an avatar. A design asset, not a decision. | §6.7 |
-| 13 | **Check a live Page in Meta's sharing debugger** once a domain exists. A missing image is the named trigger for §6.7's pre-decided JPEG-companion escalation. | §6.7 |
-| 14 | **`www` certificate SAN, the S3 website-redirect bucket and its own distribution** in CDK (ADR-0013). Deliberately not an alias on the main distribution — that would put `Host` in the public cache key. | §5 |
+| 13 | **Check a live Page in Meta's sharing debugger** — now unblocked: `dev.linkix.io` serves a real hostname, so the first Page T2 renders can be checked there. A missing image is the named trigger for §6.7's pre-decided JPEG-companion escalation. | §6.7 |
+| 14 | ~~**`www` certificate SAN, the S3 website-redirect bucket and its own distribution** in CDK (ADR-0013).~~ **Built** (#27) — a wildcard certificate covers `www` without a SAN of its own, and the redirect distribution is prod-only, so it exists in code and appears on the prod deploy. Still deliberately not an alias on the main distribution: that would put `Host` in the public cache key. | §5 |
 | 15 | **Keep the landing page's `$20/yr` / `$2.99/mo` in step with the Stripe catalogue.** ADR-0013 names this as a two-sources-of-truth watch item on the product's headline number, with no mechanism enforcing it. | §2, §5 |
 
 | 16 | **Test the eraser against a real dev table.** It is unattended destructive code with no undo — a bug in the collection query erases the wrong Account. Cover both Username branches and the active-Account no-op guard (§6.8). | §6.8 |

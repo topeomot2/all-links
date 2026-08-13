@@ -1,10 +1,27 @@
-import { DEFAULT_SITE_DOMAIN } from '@all-links/core';
 import { Annotations, App } from 'aws-cdk-lib';
 
-import { AllLinksStack } from './all-links-stack.js';
+import { AllLinksStack, type Stage } from './all-links-stack.js';
 
 /** Used when no `alertEmail` is configured; `.invalid` can never be delivered. */
 const PLACEHOLDER_ALERT_EMAIL = 'alerts@example.invalid';
+
+/**
+ * The registered apex (#27). The one place the domain is written down: every
+ * other use — the renderer's canonical URLs, the certificate, the aliases —
+ * derives from it, so there is no second literal to fall out of step.
+ */
+const DEFAULT_BASE_DOMAIN = 'linkix.io';
+
+/**
+ * `prod` is the apex, `dev` is a real subdomain of it.
+ *
+ * Dev cannot borrow the distribution's generated `*.cloudfront.net` hostname
+ * instead: feeding it to the renderer as an environment variable would make
+ * the Lambda depend on the distribution that already depends on the Lambda.
+ */
+export function siteDomainFor(stage: Stage, baseDomain: string): string {
+  return stage === 'prod' ? baseDomain : `${stage}.${baseDomain}`;
+}
 
 /**
  * Two stacks from one app (ADR-0006). T1 deploys `dev` only.
@@ -26,23 +43,32 @@ export function buildApp(app: App = new App()): App {
   };
 
   const alertEmail = configured('alertEmail', process.env['ALERT_EMAIL']) ?? PLACEHOLDER_ALERT_EMAIL;
+  const baseDomain = configured('baseDomain', process.env['BASE_DOMAIN']) ?? DEFAULT_BASE_DOMAIN;
+
+  /**
+   * Both by ARN/id rather than by lookup: `HostedZone.fromLookup` needs a
+   * concrete account and AWS credentials at synth time, which would cost CI
+   * and the infra tests the property that they run without either.
+   *
+   * One wildcard certificate (`linkix.io` + `*.linkix.io`) covers the apex,
+   * `www` and every stage subdomain, so both stacks take the same ARN.
+   */
+  const certificateArn = configured('certificateArn', process.env['CERTIFICATE_ARN']);
+  const hostedZoneId = configured('hostedZoneId', process.env['HOSTED_ZONE_ID']);
+  const hostedZone = hostedZoneId ? { id: hostedZoneId, name: baseDomain } : undefined;
 
   const env = {
     account: process.env['CDK_DEFAULT_ACCOUNT'] || undefined,
     region: configured('region', process.env['CDK_DEFAULT_REGION']) ?? 'us-east-1',
   };
 
-  /**
-   * The domain the abuse mailbox lives on (ADR-0010). `core` holds the
-   * placeholder until P1 registers the real one, so the renderer's own
-   * fallback and this one cannot drift apart.
-   */
-  const siteDomain = configured('siteDomain', process.env['SITE_DOMAIN']) ?? DEFAULT_SITE_DOMAIN;
-
   const dev = new AllLinksStack(app, 'AllLinks-dev', {
     stage: 'dev',
     alertEmail,
-    siteDomain,
+    domainName: siteDomainFor('dev', baseDomain),
+    baseDomain,
+    certificateArn,
+    hostedZone,
     monthlyBudgetUsd: 20,
     rendererReservedConcurrency: 10,
     env,
@@ -51,7 +77,10 @@ export function buildApp(app: App = new App()): App {
   const prod = new AllLinksStack(app, 'AllLinks-prod', {
     stage: 'prod',
     alertEmail,
-    siteDomain,
+    domainName: siteDomainFor('prod', baseDomain),
+    baseDomain,
+    certificateArn,
+    hostedZone,
     monthlyBudgetUsd: 100,
     rendererReservedConcurrency: 100,
     env,

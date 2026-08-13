@@ -1,6 +1,6 @@
 // `LambdaFunctionURLResult` also admits a bare string; the structured shape is
 // the only one these handlers return.
-import { createDynamoPageStore, DEFAULT_SITE_DOMAIN } from '@all-links/core';
+import { createDynamoPageStore } from '@all-links/core';
 import type { APIGatewayProxyStructuredResultV2, LambdaFunctionURLEvent } from 'aws-lambda';
 
 import { serverError, type RenderRequest } from './http.js';
@@ -40,11 +40,7 @@ let cached: RenderDeps | undefined;
  * or from a test — does not require the environment to be configured.
  */
 function deps(): RenderDeps {
-  cached ??= {
-    store: createDynamoPageStore(required('TABLE_NAME')),
-    // `infra` always sets this; the fallback is for the local dev server.
-    siteDomain: process.env['SITE_DOMAIN'] ?? DEFAULT_SITE_DOMAIN,
-  };
+  cached ??= { store: createDynamoPageStore(required('TABLE_NAME')) };
 
   return cached;
 }

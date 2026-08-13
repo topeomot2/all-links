@@ -30,7 +30,7 @@ claim username          ← availability is known HERE, before any payment
   ↓  writes the Username item only
 hosted checkout (card, 5-day trial — ADR-0002)
   ↓  billing webhook: trialing
-Page created, active=true → live at ourapp.com/<username>
+Page created, active=true → live at linkix.io/<username>
   ↓
 editor, empty state prompting the first Link
 ```

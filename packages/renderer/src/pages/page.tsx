@@ -6,8 +6,10 @@ import { Document } from './document.js';
 export interface PageDocumentProps {
   page: PageItem;
   links: LinkItem[];
-  /** The apex domain the abuse mailbox lives on (ADR-0010). */
-  siteDomain: string;
+  /** The abuse report mailbox (ADR-0010). */
+  abuseEmail: string;
+  /** This Page's one canonical URL (ADR-0011). */
+  canonical: string;
 }
 
 /**
@@ -19,11 +21,16 @@ export interface PageDocumentProps {
  * redirector, never at its destination, so a `javascript:` URL has nowhere to
  * land on this surface.
  */
-export function PageDocument({ page, links, siteDomain }: PageDocumentProps) {
+export function PageDocument({ page, links, abuseEmail, canonical }: PageDocumentProps) {
   const name = displayNameOf(page);
 
   return (
-    <Document title={pageTitle(page)} theme={themeById(page.themeId)} css={PAGE_CSS}>
+    <Document
+      title={pageTitle(page)}
+      theme={themeById(page.themeId)}
+      css={PAGE_CSS}
+      canonical={canonical}
+    >
       <main>
         <Avatar page={page} />
         <h1>{name}</h1>
@@ -45,7 +52,7 @@ export function PageDocument({ page, links, siteDomain }: PageDocumentProps) {
       <footer>
         <a
           class="report"
-          href={`mailto:abuse@${siteDomain}?subject=${encodeURIComponent(`Report: ${page.username}`)}`}
+          href={`mailto:${abuseEmail}?subject=${encodeURIComponent(`Report: ${page.username}`)}`}
           rel="nofollow noopener"
         >
           Report this page

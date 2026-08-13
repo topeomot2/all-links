@@ -11,7 +11,7 @@ status: accepted
 
 ## Context
 
-`ourapp.com/<username>` is the product's hot path: a public, cacheable, mostly-static document served to the whole internet, at a revenue ceiling of ~$1.67/mo per Account. ADR-0003 made a public render **one GSI1 query** returning the Page plus its Links in rank order, and put a mirrored **`active`** flag on the Page so visibility can be gated without reading the private Account item. ADR-0002 requires a lapsed Page to return **404 with a branded placeholder**, and deliberately left the *mechanism* to this decision.
+`linkix.io/<username>` is the product's hot path: a public, cacheable, mostly-static document served to the whole internet, at a revenue ceiling of ~$1.67/mo per Account. ADR-0003 made a public render **one GSI1 query** returning the Page plus its Links in rank order, and put a mirrored **`active`** flag on the Page so visibility can be gated without reading the private Account item. ADR-0002 requires a lapsed Page to return **404 with a branded placeholder**, and deliberately left the *mechanism* to this decision.
 
 Two cost facts drove the design:
 
@@ -90,7 +90,7 @@ The default behavior's cache policy forwards **no cookies**, so dashboard sessio
 
 **Amended by ADR-0013 — no new behavior.** The default `/*` behavior also serves a **static route table** from `core` (`/`, `/terms`, `/privacy`, `/robots.txt`, `/og-card.png`, plus redirects for `/login`, `/signup`, `/pricing`), checked *before* the username lookup. The root is not routable away from this behavior — CloudFront treats a leading slash as implied, so a bare `/` is the empty pattern, and the default pattern `*` cannot be changed. The behavior list stays at six.
 
-**Also amended by ADR-0013:** `www.ourapp.com` is served by a **separate** distribution (S3 website-redirect bucket → apex), *not* an alias here — adding it as an alias would require `Host` in this behavior's cache key, fragmenting every cached Page across two hostnames.
+**Also amended by ADR-0013:** `www.linkix.io` is served by a **separate** distribution (S3 website-redirect bucket → apex), *not* an alias here — adding it as an alias would require `Host` in this behavior's cache key, fragmenting every cached Page across two hostnames.
 
 ## Considered options
 
@@ -101,7 +101,7 @@ The default behavior's cache policy forwards **no cookies**, so dashboard sessio
 - **Long TTL + invalidate on every write.** Instantly fresh, but ~$250/mo at 10k Accounts and makes a CloudFront call a dependency of every mutation — a failed invalidation leaves a stale or, worse, a lapsed-but-live Page.
 - **Counting on cache miss in the renderer.** Free and simple, but reports cache misses as views (a 10,000-view Page might report ~60). An analytics feature that lies is worse than none.
 - **Deriving counts from CloudFront access logs.** Captures cache hits with no client hook, but adds log storage, a batch job, and counts that lag by minutes to an hour.
-- **App on `app.ourapp.com`.** Cleaner cookie isolation and a purer root namespace, but a second distribution and origin to operate plus a cross-origin auth handoff — and marketing routes still need reserving at the root.
+- **App on `app.linkix.io`.** Cleaner cookie isolation and a purer root namespace, but a second distribution and origin to operate plus a cross-origin auth handoff — and marketing routes still need reserving at the root.
 - **Confining app routes under a `/_/` prefix.** Reduces the denylist to one token forever, at the cost of URLs like `/_/pricing` on the pages that most need to look legitimate.
 
 ## Consequences

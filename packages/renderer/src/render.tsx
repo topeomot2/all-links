@@ -3,6 +3,7 @@ import { canonicalUsername, isReservedUsername, isValidUsername } from '@all-lin
 import type { VNode } from 'preact';
 import { render } from 'preact-render-to-string';
 
+import { abuseEmail, canonicalUrl } from './config.js';
 import {
   htmlResponse,
   methodNotAllowed,
@@ -17,8 +18,6 @@ const DOCTYPE = '<!DOCTYPE html>';
 
 export interface RenderDeps {
   store: PageStore;
-  /** The apex domain the abuse mailbox lives on (ADR-0010). */
-  siteDomain: string;
 }
 
 /**
@@ -57,7 +56,15 @@ async function route(req: RenderRequest, deps: RenderDeps): Promise<RenderRespon
   switch (lookup.kind) {
     case 'visible':
       return respond(
-        <PageDocument page={lookup.page} links={lookup.links} siteDomain={deps.siteDomain} />,
+        <PageDocument
+          page={lookup.page}
+          links={lookup.links}
+          abuseEmail={abuseEmail()}
+          // Built from the *stored* Username, not the requested path, so the
+          // one canonical URL is the same string whether a visitor arrived at
+          // `/Jane`, `/jane/` or `/jane`.
+          canonical={canonicalUrl(`/${lookup.page.username}`)}
+        />,
       );
     case 'hidden':
       return notFound('inactive', username);
