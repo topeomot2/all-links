@@ -119,12 +119,40 @@ describe('the renderer function', () => {
     });
   });
 
-  it('knows the table and the stage it is running in', () => {
+  it('knows the table, the stage, and the apex its abuse mailto points at', () => {
     dev.hasResourceProperties('AWS::Lambda::Function', {
       Environment: {
-        Variables: Match.objectLike({ STAGE: 'dev', TABLE_NAME: Match.anyValue() }),
+        Variables: Match.objectLike({
+          STAGE: 'dev',
+          TABLE_NAME: Match.anyValue(),
+          // The apex, not this stage's host: reports must reach a real mailbox
+          // from dev too (ADR-0010).
+          BASE_DOMAIN: 'linkix.io',
+        }),
       },
     });
+  });
+
+  it('may read the table and nothing more — every write path is the api Lambda’s', () => {
+    dev.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Effect: 'Allow',
+            Action: Match.arrayWith(['dynamodb:Query']),
+          }),
+        ]),
+      }),
+    });
+
+    // The public read path is one GSI1 query, so the grant has to cover the
+    // index as well as the table itself (ADR-0003).
+    const policies = dev.findResources('AWS::IAM::Policy');
+    const actions = JSON.stringify(policies);
+
+    expect(actions).not.toContain('dynamodb:PutItem');
+    expect(actions).not.toContain('dynamodb:UpdateItem');
+    expect(actions).not.toContain('dynamodb:DeleteItem');
   });
 
   // It is reached over a Function URL and ADR-0004 forwards no `Host`, so the

@@ -128,7 +128,8 @@ server.listen(PORT, () => {
   console.log(`  /px, /r/*   → counter`);
   console.log(`  everything  → renderer`);
   if (!process.env['TABLE_NAME']) {
-    console.log('\n  TABLE_NAME is unset. Nothing reads DynamoDB yet (T1), but T2 onwards');
-    console.log("  needs it pointed at the dev stack's table, with AWS credentials.");
+    console.log("\n  TABLE_NAME is unset. Point it at the dev stack's table, with AWS");
+    console.log('  credentials — the renderer reads every Page from it. Without it,');
+    console.log('  any request for a Page is a 500. There is no offline mode.');
   }
 });

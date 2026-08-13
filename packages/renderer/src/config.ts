@@ -18,6 +18,22 @@ export function siteOrigin(): string {
 }
 
 /**
+ * The abuse report mailbox (ADR-0010) — the intake channel every public Page
+ * links in its footer.
+ *
+ * It is deliberately *not* derived from `siteOrigin()`: that is the stage's own
+ * host, so `dev` would advertise `abuse@dev.linkix.io`, a mailbox nobody reads
+ * and reports would vanish into. The address is the apex at every stage, so the
+ * stack injects the base domain alongside the origin it derives from (#27).
+ */
+export function abuseEmail(): string {
+  return `abuse@${process.env['BASE_DOMAIN'] ?? DEFAULT_BASE_DOMAIN}`;
+}
+
+/** Only reached by `tools/dev-server`; every deployed stage injects the real one. */
+const DEFAULT_BASE_DOMAIN = 'linkix.io';
+
+/**
  * The absolute URL for a path — `og:url`, `<link rel="canonical">` (ADR-0011)
  * and any absolute redirect. Paths arrive already decoded, so this re-encodes
  * what a URL requires and nothing else.

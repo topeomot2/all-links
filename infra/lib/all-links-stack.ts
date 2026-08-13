@@ -58,6 +58,14 @@ export interface AllLinksStackProps extends StackProps {
    */
   domainName: string;
   /**
+   * The registered apex, without any stage prefix (#27).
+   *
+   * Distinct from `domainName` on purpose: the abuse mailbox (ADR-0010) lives
+   * at the apex at every stage, so `dev` must advertise `abuse@linkix.io` and
+   * not `abuse@dev.linkix.io`, which nobody reads.
+   */
+  baseDomain: string;
+  /**
    * The wildcard certificate covering the apex, `www` and every stage
    * subdomain. Must live in us-east-1 — CloudFront reads it from nowhere else.
    * Absent, the stage answers on its generated CloudFront hostname only.
@@ -148,6 +156,8 @@ export class AllLinksStack extends Stack {
         // cache key so CloudFront must not forward it. Canonical URLs and
         // `og:url` (ADR-0011) come from here instead (#27).
         SITE_ORIGIN: this.siteOrigin,
+        // The apex, for the abuse mailbox the Page footer links (ADR-0010).
+        BASE_DOMAIN: props.baseDomain,
         NODE_OPTIONS: '--enable-source-maps',
       },
       projectRoot: repoRoot,
@@ -160,6 +170,11 @@ export class AllLinksStack extends Stack {
         sourcesContent: false,
         tsconfig: path.join(repoRoot, 'tsconfig.json'),
         mainFields: ['module', 'main'],
+        // CDK would otherwise leave `@aws-sdk/*` external and trust whatever
+        // the managed runtime ships. Bundling it means the DynamoDB client the
+        // renderer is tested against is the one it runs on, and a runtime
+        // refresh cannot change the read path underneath a deployed Lambda.
+        bundleAwsSDK: true,
       },
     });
 
