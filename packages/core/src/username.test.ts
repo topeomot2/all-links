@@ -55,9 +55,10 @@ describe('the reserved set (ADR-0007, amended by ADR-0013)', () => {
     }
   });
 
-  it('reserves the names that will gain a static route in T3', () => {
-    // ADR-0013 derives these from `STATIC_ROUTES` once it exists. Until then
-    // they are listed, because `/terms` must not offer to sell the name.
+  it('reserves the routed names without listing one of them', () => {
+    // None of these appears in `BASE_RESERVED`: they are reserved *because*
+    // they have a route, by the union in `RESERVED` (ADR-0013). Deleting a row
+    // from `STATIC_ROUTES` is what would fail this — which is the point.
     for (const name of ['terms', 'privacy', 'login', 'signup', 'pricing']) {
       expect(isReservedUsername(name), name).toBe(true);
     }

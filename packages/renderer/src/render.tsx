@@ -13,6 +13,7 @@ import {
 } from './http.js';
 import { NotFoundDocument, type NotFoundReason } from './pages/not-found.js';
 import { PageDocument } from './pages/page.js';
+import { staticRouteResponse } from './static-routes.js';
 
 const DOCTYPE = '<!DOCTYPE html>';
 
@@ -23,11 +24,12 @@ export interface RenderDeps {
 /**
  * The renderer's single entry point.
  *
- * The order is the one ADR-0013 fixes: the static route table from `core` (T3)
- * will sit directly above the Username lookup below, so a Static route always
- * wins over a Page. Everything here is either a Page or a reason there isn't
- * one — and every one of those reasons is a 404 at the Page's own freshness,
- * so a freshly claimed Username goes live within 60 seconds.
+ * The order is the one ADR-0013 fixes: the static route table from `core` sits
+ * directly above the Username lookup, so a Static route always wins over a
+ * Page and no marketing path can ever cost a read. Below it, everything is
+ * either a Page or a reason there isn't one — and every one of those reasons
+ * is a 404 at the Page's own freshness, so a freshly claimed Username goes
+ * live within 60 seconds.
  */
 export async function handleRequest(req: RenderRequest, deps: RenderDeps): Promise<RenderResponse> {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -42,6 +44,12 @@ export async function handleRequest(req: RenderRequest, deps: RenderDeps): Promi
 }
 
 async function route(req: RenderRequest, deps: RenderDeps): Promise<RenderResponse> {
+  // First, and before any DynamoDB access: `/` is the product's front door and
+  // used to fall through to the lookup below, which answered "this name is
+  // available — claim it".
+  const staticRoute = staticRouteResponse(req.path);
+  if (staticRoute) return staticRoute;
+
   const username = usernameFromPath(req.path);
 
   // Not a Username at all — a multi-segment path, or one no Account could ever

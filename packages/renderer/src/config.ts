@@ -18,6 +18,17 @@ export function siteOrigin(): string {
 }
 
 /**
+ * The bare host — `linkix.io`, no scheme, no port-less assumptions.
+ *
+ * The landing page shows a visitor what an address looks like, so it needs the
+ * host as text rather than a URL. Derived from the same configured origin, so
+ * a stage shows its own hostname rather than promising one it does not answer.
+ */
+export function siteHost(): string {
+  return new URL(`${siteOrigin()}/`).host;
+}
+
+/**
  * The abuse report mailbox (ADR-0010) — the intake channel every public Page
  * links in its footer.
  *
@@ -32,6 +43,14 @@ export function abuseEmail(): string {
 
 /** Only reached by `tools/dev-server`; every deployed stage injects the real one. */
 const DEFAULT_BASE_DOMAIN = 'linkix.io';
+
+/**
+ * The product name, as it appears in `og:site_name` and the marketing chrome.
+ *
+ * A constant rather than an environment value: every stage is the same product,
+ * and a stage-specific brand name would leak `dev` into an unfurl.
+ */
+export const SITE_NAME = 'All-Links';
 
 /**
  * The absolute URL for a path — `og:url`, `<link rel="canonical">` (ADR-0011)

@@ -2,6 +2,8 @@ import type { Theme } from '@all-links/core';
 import { themeVariables } from '@all-links/core';
 import type { ComponentChildren } from 'preact';
 
+import { SITE_NAME } from '../config.js';
+
 /**
  * The shell every document the renderer emits shares.
  *
@@ -23,10 +25,37 @@ export interface DocumentProps {
    * at. T6 hangs the rest of the unfurl tags off the same value.
    */
   canonical?: string;
+  /** Omitted where there is nothing worth sharing — every 404 body. */
+  unfurl?: Unfurl;
   children: ComponentChildren;
 }
 
-export function Document({ title, theme, css, robots, canonical, children }: DocumentProps) {
+/**
+ * The preview card another app renders when this URL is pasted into it
+ * (`CONTEXT.md` — Unfurl), in the shape ADR-0011 fixes.
+ *
+ * `twitter:card` is not a field: it is **always `summary`**, because the
+ * brand card is square and an avatar is ≤256 px — below `summary_large_image`'s
+ * minimum — so the card type never varies and no caller gets to vary it.
+ */
+export interface Unfurl {
+  title: string;
+  description: string;
+  /** Absolute URL — a `data:` URI is not fetchable by an unfurler (ADR-0009). */
+  image: string;
+  /** `website` for a marketing page; `profile` for a Page (T6). */
+  type: 'website' | 'profile';
+}
+
+export function Document({
+  title,
+  theme,
+  css,
+  robots,
+  canonical,
+  unfurl,
+  children,
+}: DocumentProps) {
   return (
     <html lang="en">
       <head>
@@ -40,10 +69,45 @@ export function Document({ title, theme, css, robots, canonical, children }: Doc
             <meta property="og:url" content={canonical} />
           </>
         ) : null}
-        <style>{`:root{${themeVariables(theme)}}${BASE_CSS}${css}`}</style>
+        {unfurl ? <UnfurlTags unfurl={unfurl} /> : null}
+        <Stylesheet css={`:root{${themeVariables(theme)}}${BASE_CSS}${css}`} />
       </head>
       <body>{children}</body>
     </html>
+  );
+}
+
+/**
+ * The inlined stylesheet, written raw.
+ *
+ * `<style>` is a raw-text element: a browser's CSS parser never decodes HTML
+ * entities inside it. So JSX's escaping — right everywhere else in this
+ * document — is wrong *here*: `"Segoe UI"` reaches the parser as
+ * `&quot;Segoe UI&quot;`, which is not a valid font name, and CSS drops the
+ * whole `font` shorthand it appears in. The rule silently does nothing.
+ *
+ * Raw is safe because nothing user-supplied can reach this string. Every
+ * caller passes module constants, and the tokens come from a fixed Theme
+ * table — which is exactly why `Document` assembles the stylesheet itself
+ * rather than taking one from a caller.
+ */
+function Stylesheet({ css }: { css: string }) {
+  return <style dangerouslySetInnerHTML={{ __html: css }} />;
+}
+
+function UnfurlTags({ unfurl }: { unfurl: Unfurl }) {
+  return (
+    <>
+      <meta property="og:type" content={unfurl.type} />
+      <meta property="og:site_name" content={SITE_NAME} />
+      <meta property="og:title" content={unfurl.title} />
+      <meta property="og:description" content={unfurl.description} />
+      <meta property="og:image" content={unfurl.image} />
+      <meta name="twitter:card" content="summary" />
+      <meta name="twitter:title" content={unfurl.title} />
+      <meta name="twitter:description" content={unfurl.description} />
+      <meta name="twitter:image" content={unfurl.image} />
+    </>
   );
 }
 

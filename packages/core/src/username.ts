@@ -5,6 +5,7 @@
  * transaction and the public renderer cannot drift into three answers to
  * "is this name usable?".
  */
+import { routeUsername, STATIC_ROUTES } from './routes.js';
 
 /**
  * 3–30 characters of `a-z 0-9 - _`, as alphanumeric runs joined by *single*
@@ -72,16 +73,21 @@ const BASE_RESERVED = [
 ] as const;
 
 /**
- * Names that will gain a static route in T3.
+ * The denylist is **derived, not maintained** (ADR-0013):
  *
- * ADR-0013 makes the denylist *derived* — `RESERVED = BASE_RESERVED ∪
- * keys(STATIC_ROUTES)` — so adding a root route reserves its name in the same
- * expression. `STATIC_ROUTES` arrives with the routes themselves; until then
- * these are listed, because `/terms` must not offer to sell the name `terms`.
+ *     RESERVED = BASE_RESERVED ∪ keys(STATIC_ROUTES)
+ *
+ * Adding a root route reserves its name in the same expression, which retires
+ * ADR-0007's standing rule that both had to be edited together — and with it
+ * the one class of bug that could only ever surface on deploy day: shipping a
+ * route whose name a creator already owns.
+ *
+ * `BASE_RESERVED` keeps only the names with *no* route behind them.
  */
-const ROUTED_NAMES = ['terms', 'privacy', 'login', 'signup', 'pricing'] as const;
-
-export const RESERVED: ReadonlySet<string> = new Set<string>([...BASE_RESERVED, ...ROUTED_NAMES]);
+export const RESERVED: ReadonlySet<string> = new Set<string>([
+  ...BASE_RESERVED,
+  ...[...STATIC_ROUTES.keys()].map(routeUsername),
+]);
 
 /** Canonicalises first, so `API` is not a way past the denylist. */
 export function isReservedUsername(input: string): boolean {
