@@ -297,7 +297,9 @@ describe('the negative paths (spec §6.6)', () => {
   });
 
   it('tells the truth about a reserved name, and does not offer to sell it', async () => {
-    for (const path of ['/support', '/api', '/terms', '/blog']) {
+    // Reserved *and* unrouted — `/terms` has a page of its own now (ADR-0013),
+    // and the table above answers it before this path is reached.
+    for (const path of ['/support', '/api', '/blog', '/about', '/docs', '/help']) {
       const res = await render({ kind: 'absent' }, { path });
 
       expect(res.status, path).toBe(404);
@@ -315,7 +317,8 @@ describe('the negative paths (spec §6.6)', () => {
   });
 
   it('does not offer to sell a path that could never be a username', async () => {
-    for (const path of ['/deep/unknown/path', '/ab', '/jane.doe', '/-jane', '/']) {
+    // `/` is absent deliberately: it is the landing page now, not a placeholder.
+    for (const path of ['/deep/unknown/path', '/ab', '/jane.doe', '/-jane']) {
       const res = await render({ kind: 'absent' }, { path });
 
       expect(res.status, path).toBe(404);
@@ -382,5 +385,182 @@ describe('path handling', () => {
 
     expect(res.body).toMatch(/reserved/i);
     expect(d.lookedUp).toEqual([]);
+  });
+});
+
+describe('the static route table (ADR-0013)', () => {
+  /** The store would happily answer — the table must be consulted first. */
+  const staticRes = (path: string, method = 'GET') =>
+    handleRequest(request({ path, method }), deps(visible()));
+
+  it('wins over a Page, and costs no read at all', async () => {
+    for (const path of ['/', '/terms', '/privacy', '/robots.txt', '/og-card.png', '/login']) {
+      const d = deps(visible());
+
+      const res = await handleRequest(request({ path }), d);
+
+      expect(res.status, path).not.toBe(404);
+      // The short-circuit is above the query, so marketing never touches
+      // DynamoDB — `/` costs a Lambda invocation and nothing else.
+      expect(d.lookedUp, path).toEqual([]);
+    }
+  });
+
+  it('caches static routes for five minutes at the edge, never in the browser', async () => {
+    for (const path of ['/', '/terms', '/privacy', '/robots.txt', '/og-card.png', '/pricing']) {
+      const res = await staticRes(path);
+
+      expect(res.headers['cache-control'], path).toBe('public, s-maxage=300, max-age=0');
+    }
+  });
+
+  it('serves the landing page at `/`, with pricing inline and a CTA to the dashboard', async () => {
+    const res = await staticRes('/');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(res.body.startsWith('<!DOCTYPE html>')).toBe(true);
+    // The anchor `/pricing` redirects to, and the prices ADR-0002 fixed.
+    expect(res.body).toContain('id="pricing"');
+    expect(res.body).toContain('$20');
+    expect(res.body).toContain('$2.99');
+    expect(res.body).toContain('href="/app/"');
+  });
+
+  it('stops offering to sell the empty username — the defect S1 called not shippable', async () => {
+    const res = await staticRes('/');
+
+    expect(res.body).not.toMatch(/is available/i);
+  });
+
+  it('serves Terms and Privacy from their own components', async () => {
+    const terms = await staticRes('/terms');
+    const privacy = await staticRes('/privacy');
+
+    expect(terms.status).toBe(200);
+    expect(terms.body).toContain('Terms of Service');
+    expect(privacy.status).toBe(200);
+    expect(privacy.body).toContain('Privacy Policy');
+    expect(terms.body).not.toBe(privacy.body);
+  });
+
+  it('keeps the marketing pages self-contained, like every other document', async () => {
+    for (const path of ['/', '/terms', '/privacy']) {
+      const res = await staticRes(path);
+
+      expect(res.body, path).toMatch(/<style>/i);
+      expect(res.body, path).not.toMatch(/<script\b/i);
+      expect(res.body, path).not.toMatch(/<link[^>]+stylesheet/i);
+    }
+  });
+
+  it('makes the marketing pages findable and shareable (ADR-0011, ADR-0013)', async () => {
+    process.env['SITE_ORIGIN'] = 'https://linkix.io';
+    try {
+      const res = await staticRes('/terms/');
+
+      expect(res.body).toContain('content="index,follow"');
+      // Canonical comes from the table's own key, so `/terms/` and `/terms`
+      // are one document with one URL.
+      expect(res.body).toContain('<link rel="canonical" href="https://linkix.io/terms"');
+      expect(res.body).toContain('property="og:image" content="https://linkix.io/og-card.png"');
+      expect(res.body).toContain('name="twitter:card" content="summary"');
+    } finally {
+      delete process.env['SITE_ORIGIN'];
+    }
+  });
+
+  it('serves robots.txt from the table, not from the SPA origin', async () => {
+    const res = await staticRes('/robots.txt');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
+    // The click, the pixel, the api and the dashboard — everything that is not
+    // a document (ADR-0011).
+    expect(res.body).toContain('Disallow: /r/');
+    expect(res.body).toContain('Disallow: /px');
+    expect(res.body).toContain('Disallow: /api/');
+    expect(res.body).toContain('Disallow: /app/');
+    // Pages themselves stay indexable: sharing a link is the whole product.
+    expect(res.body).not.toMatch(/^Disallow: \/$/m);
+  });
+
+  it('serves the brand card from the table as real PNG bytes', async () => {
+    const res = await staticRes('/og-card.png');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.isBase64Encoded).toBe(true);
+
+    const bytes = Buffer.from(res.body, 'base64');
+    expect([...bytes.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  });
+
+  it('sends the names a visitor guesses somewhere useful, with a 302 not a 301', async () => {
+    const cases: [string, string][] = [
+      ['/login', '/app/'],
+      ['/signup', '/app/'],
+      ['/pricing', '/#pricing'],
+    ];
+
+    for (const [path, location] of cases) {
+      const res = await staticRes(path);
+
+      // 302: a permanent redirect is cached in browsers we do not control, and
+      // none of these targets is settled enough to burn in (ADR-0008).
+      expect(res.status, path).toBe(302);
+      expect(res.headers['location'], path).toBe(location);
+      expect(res.body, path).toBe('');
+    }
+  });
+
+  it('resolves a trailing slash, so `/terms/` is not a 404', async () => {
+    const res = await staticRes('/terms/');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('Terms of Service');
+  });
+
+  it('leaves `/Terms` to the reserved body rather than lowercasing the path', async () => {
+    // Deliberate (ADR-0013): routing must not decide how `/JaneDoe` resolves.
+    // The honest answer still wins — the name is reserved, not for sale.
+    const d = deps({ kind: 'absent' });
+
+    const res = await handleRequest(request({ path: '/Terms' }), d);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toMatch(/reserved/i);
+    expect(res.body).not.toContain('href="/app/"');
+    expect(d.lookedUp).toEqual([]);
+  });
+
+  it('serves a HEAD of a static route with the body dropped, not the headers', async () => {
+    const get = await staticRes('/');
+    const head = await staticRes('/', 'HEAD');
+
+    expect(head.status).toBe(get.status);
+    expect(head.headers).toEqual(get.headers);
+    expect(head.body).toBe('');
+  });
+});
+
+describe('the inlined stylesheet', () => {
+  it('reaches the CSS parser unescaped — `<style>` is raw text, not markup', async () => {
+    // Escaped, the font stack arrives as `&quot;Segoe UI&quot;`, which CSS
+    // cannot parse — and it drops the whole `font` shorthand with it, taking
+    // the document's size and line-height along.
+    const cases = [
+      await render(visible(), { path: '/jane' }),
+      await render({ kind: 'absent' }, { path: '/nobody' }),
+      await handleRequest(request({ path: '/' }), deps(visible())),
+    ];
+
+    for (const res of cases) {
+      const css = /<style>([\s\S]*?)<\/style>/.exec(res.body)?.[1];
+
+      expect(css).toBeDefined();
+      expect(css).toContain('"Segoe UI"');
+      expect(css).not.toContain('&quot;');
+    }
   });
 });

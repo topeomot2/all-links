@@ -28,16 +28,62 @@ export interface RenderResponse {
  */
 export const PAGE_CACHE_CONTROL = 'public, s-maxage=60, max-age=0';
 
+/**
+ * A Static route: five minutes at the edge (ADR-0013). Long enough to cut the
+ * front door's cold-start exposure ~5× — `/` is the hottest path in the system
+ * and the least forgiving visitor arrives there — and short enough that a copy
+ * fix never needs an invalidation, which is what keeps ADR-0004's single
+ * invalidation trigger single.
+ */
+export const STATIC_CACHE_CONTROL = 'public, s-maxage=300, max-age=0';
+
 export const NO_STORE = 'no-store';
 
-export function htmlResponse(body: string, cacheControl: string, status = 200): RenderResponse {
+export const HTML = 'text/html; charset=utf-8';
+
+export function textResponse(
+  body: string,
+  contentType: string,
+  cacheControl: string,
+  status = 200,
+): RenderResponse {
   return {
     status,
     headers: {
-      'content-type': 'text/html; charset=utf-8',
+      'content-type': contentType,
       'cache-control': cacheControl,
     },
     body,
+  };
+}
+
+export function htmlResponse(body: string, cacheControl: string, status = 200): RenderResponse {
+  return textResponse(body, HTML, cacheControl, status);
+}
+
+/** A file the renderer holds rather than renders — the brand card (ADR-0013). */
+export function binaryResponse(
+  base64: string,
+  contentType: string,
+  cacheControl: string,
+): RenderResponse {
+  return { ...textResponse(base64, contentType, cacheControl), isBase64Encoded: true };
+}
+
+/**
+ * **302, never 301** (ADR-0008, restated by ADR-0013): a permanent redirect is
+ * cached in browsers we do not control, and none of these targets is settled
+ * enough to burn in. `max-age=0` says the same thing a second way — only the
+ * edge copy is cached, and the edge is ours to drop.
+ */
+export function redirectResponse(location: string, cacheControl: string): RenderResponse {
+  return {
+    status: 302,
+    headers: {
+      location,
+      'cache-control': cacheControl,
+    },
+    body: '',
   };
 }
 
