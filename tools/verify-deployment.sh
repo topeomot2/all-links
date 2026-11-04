@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks the two acceptance criteria that only a deployed stack can answer:
 #
-#   1. the deployed URL returns renderer HTML, and a second request is a HIT
+#   1. the deployed URL returns renderer HTML, and repeat requests come from the edge
 #   2. the *.lambda-url.*.on.aws hostname returns 403 when hit directly
 #   3. a reserved name answers honestly rather than offering to sell itself
 #
@@ -45,11 +45,21 @@ grep -q '<!DOCTYPE html>' /tmp/all-links-body || fail 'expected a renderer docum
 grep -qi 'is available' /tmp/all-links-body || fail 'expected the unclaimed-username body'
 echo "ok  unclaimed username renders the claim-it 404 through CloudFront"
 
-# 2. The same path again is served from the edge.
-second="$(curl -sS -D - -o /dev/null "$SITE_URL$path")"
+# 2. Both kinds of response are served from the edge.
+#    A cached 404 still reports `x-cache: Error from cloudfront`, so only a 200
+#    can show a HIT. The 404's proof is `age`, which only a cached copy carries;
+#    the wait lets it reach at least 1, since it can be absent or 0 before that.
+curl -sS -o /dev/null "$SITE_URL/"
+second="$(curl -sS -D - -o /dev/null "$SITE_URL/")"
+grep -qi '^HTTP/[0-9.]* 200' <<<"$second" || fail "expected 200 from $SITE_URL/"
 grep -qi '^x-cache: Hit from cloudfront' <<<"$second" \
-  || fail "second request was not a HIT: $(grep -i '^x-cache' <<<"$second")"
-echo "ok  second request is a CloudFront HIT"
+  || fail "second request to / was not a HIT: $(grep -i '^x-cache' <<<"$second")"
+echo "ok  second request to / is a CloudFront HIT"
+
+sleep 2
+repeat="$(curl -sS -D - -o /dev/null "$SITE_URL$path")"
+grep -qiE '^age: [1-9]' <<<"$repeat" || fail "the 404 at $path was not served from the edge cache"
+echo "ok  repeated 404 is served from the edge cache"
 
 # 3. The Function URL is not addressable without a SigV4 signature.
 direct="$(curl -sS -o /dev/null -w '%{http_code}' "$FUNCTION_URL")"

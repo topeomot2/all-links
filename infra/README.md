@@ -112,8 +112,9 @@ Launch checklist, in order:
    moment `og:url` and `og:image` can be verified against a real hostname.
 
 `tools/verify-deployment.sh` checks the two things only a deployed stack can
-answer: the site returns renderer HTML and a second request is a CloudFront
-`HIT`, and the Function URL returns **403** when hit directly.
+answer: the site returns renderer HTML, repeat requests come from the CloudFront
+cache (`HIT` on `/`, a rising `age` on a 404), and the Function URL returns
+**403** when hit directly.
 
 ## What a human identity needs
 
