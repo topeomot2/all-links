@@ -223,16 +223,20 @@ Trust policy for the role, scoped to this repository's `main`:
     "Condition": {
       "StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:topeomot2/all-links:ref:refs/heads/main"
+        "token.actions.githubusercontent.com:sub": "repo:topeomot2@1574124/all-links@1315063734:ref:refs/heads/main"
       }
     }
   }]
 }
 ```
 
-The `sub` depends on the workflow. Adding `environment:` to the deploy job
-changes it to `repo:topeomot2/all-links:environment:<name>`, and this policy
-then denies the job until it is updated to match.
+This repository uses GitHub's immutable subject format, so the `sub` carries the
+owner and repository IDs. `gh api repos/topeomot2/all-links/actions/oidc/customization/sub`
+returns the prefix.
+
+The `sub` also depends on the workflow. Adding `environment:` to the deploy job
+replaces the `ref:refs/heads/main` suffix with `environment:<name>`, and this
+policy then denies the job until it is updated to match.
 
 The role needs permission to assume CDK's bootstrap roles, which is what
 actually performs the deploy, and to read the stack outputs for
