@@ -221,30 +221,39 @@ Trust policy for the role, scoped to this repository's `main`:
     "Principal": { "Federated": "arn:aws:iam::<account>:oidc-provider/token.actions.githubusercontent.com" },
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
-      "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
-      "StringLike": { "token.actions.githubusercontent.com:sub": "repo:topeomot2/all-links:ref:refs/heads/main" }
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:topeomot2/all-links:ref:refs/heads/main"
+      }
     }
   }]
 }
 ```
 
+The `sub` depends on the workflow. Adding `environment:` to the deploy job
+changes it to `repo:topeomot2/all-links:environment:<name>`, and this policy
+then denies the job until it is updated to match.
+
 The role needs permission to assume CDK's bootstrap roles, which is what
-actually performs the deploy:
+actually performs the deploy, and to read the stack outputs for
+`tools/verify-deployment.sh`:
 
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": "sts:AssumeRole",
-    "Resource": "arn:aws:iam::<account>:role/cdk-*"
-  }]
+  "Statement": [
+    { "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::<account>:role/cdk-*" },
+    { "Effect": "Allow",
+      "Action": "cloudformation:DescribeStacks",
+      "Resource": "arn:aws:cloudformation:<region>:<account>:stack/AllLinks-dev/*" }
+  ]
 }
 ```
 
 ## Not here yet
 
-The `/api/*`, `/px`, `/r/*`, `/i/*` and `/app/*` behaviors, the SPA bucket, the
-Cognito user pool, the custom domain and certificate, and the `www` redirect
-distribution all arrive with the tickets that need them. T1 is the walking
-skeleton: one origin, one behavior, one path through the whole system.
+The `/api/*`, `/px`, `/r/*`, `/i/*` and `/app/*` behaviors, the SPA bucket and
+the Cognito user pool all arrive with the tickets that need them. T1 is the
+walking skeleton: one origin, one behavior, one path through the whole system.
