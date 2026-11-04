@@ -282,9 +282,12 @@ export class AllLinksStack extends Stack {
     // ---- Cost ceiling ----------------------------------------------------
     // Mandatory per ADR-0001: egress past CloudFront's 1 TB free tier is the
     // accepted risk, and this is the backstop that makes it survivable.
+    //
+    // Unnamed on purpose. Changing a subscriber replaces this resource, and
+    // CloudFormation creates the new budget before deleting the old one, so a
+    // fixed name fails the deploy with AlreadyExists.
     new CfnBudget(this, 'MonthlyBudget', {
       budget: {
-        budgetName: `all-links-${stage}`,
         budgetType: 'COST',
         timeUnit: 'MONTHLY',
         budgetLimit: { amount: props.monthlyBudgetUsd, unit: 'USD' },

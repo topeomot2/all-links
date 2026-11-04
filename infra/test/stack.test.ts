@@ -331,4 +331,10 @@ describe('the budget', () => {
       ]),
     });
   });
+
+  it('has no fixed name, so changing its subscriber can replace it', () => {
+    dev.hasResourceProperties('AWS::Budgets::Budget', {
+      Budget: Match.objectLike({ BudgetName: Match.absent() }),
+    });
+  });
 });
