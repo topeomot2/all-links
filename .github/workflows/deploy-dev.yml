@@ -20,7 +20,6 @@ jobs:
     # Stays skipped until the deploy role exists, rather than failing red.
     # See infra/README.md for the role and its trust policy.
     if: vars.AWS_DEPLOY_ROLE_ARN != ''
-    environment: dev
     steps:
       - uses: actions/checkout@v4
 
