@@ -9,6 +9,8 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
-    "@all-links/core": "*"
+    "@all-links/core": "*",
+    "aws-jwt-verify": "^5.2.1",
+    "hono": "^4.13.16"
   }
 }

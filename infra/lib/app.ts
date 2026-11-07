@@ -57,6 +57,9 @@ export function buildApp(app: App = new App()): App {
   const hostedZoneId = configured('hostedZoneId', process.env['HOSTED_ZONE_ID']);
   const hostedZone = hostedZoneId ? { id: hostedZoneId, name: baseDomain } : undefined;
 
+  /** The deploy workflow sets this so a missing dashboard build fails synth. */
+  const requireDashboardBuild = configured('requireDashboardBuild') === 'true';
+
   const env = {
     account: process.env['CDK_DEFAULT_ACCOUNT'] || undefined,
     region: configured('region', process.env['CDK_DEFAULT_REGION']) ?? 'us-east-1',
@@ -71,6 +74,8 @@ export function buildApp(app: App = new App()): App {
     hostedZone,
     monthlyBudgetUsd: 20,
     rendererReservedConcurrency: 10,
+    apiReservedConcurrency: 5,
+    requireDashboardBuild,
     env,
   });
 
@@ -83,6 +88,8 @@ export function buildApp(app: App = new App()): App {
     hostedZone,
     monthlyBudgetUsd: 100,
     rendererReservedConcurrency: 100,
+    apiReservedConcurrency: 20,
+    requireDashboardBuild,
     env,
   });
 

@@ -14,10 +14,11 @@ packages/
   core/        domain types, key construction, the public read path,
                  username rules + reserved names, Themes
   renderer/    Lambda — HTML for every public path      (CloudFront default behavior)
-  api/         Lambda — /api/* CRUD + billing webhooks  (T7 onwards)
+  api/         Lambda — /api/* (Hono, in-process Cognito JWT check),
+                 plus the Cognito post-confirmation trigger
   counter/     Lambda — /px views, /r/* click redirects (T5)
-  dashboard/   React + Vite SPA                         (/app/*, T7)
-infra/         AWS CDK app — table, renderer, one distribution, budget
+  dashboard/   React + Vite SPA — email OTP sign-in     (/app/*)
+infra/         AWS CDK app — table, user pool, Lambdas, one distribution, budget
 tools/         local dev server, deployment verification
 ```
 
@@ -55,6 +56,19 @@ Vite serves `/app/*` itself and proxies everything else to the handler server �
 the same split the distribution makes at the edge. Export `TABLE_NAME` (the dev
 stack's table) and have AWS credentials in the shell — the renderer reads every
 Page from it, so without them a Page request is a 500.
+
+The api also needs the dev stack's pool — export `USER_POOL_ID` and
+`USER_POOL_CLIENT_ID` from its outputs. The dashboard reads the same values at
+boot from `/app/config.json`, which the stack writes when deployed; locally,
+create the gitignored `packages/dashboard/public/config.json`:
+
+```json
+{ "region": "us-east-1", "userPoolId": "<UserPoolId>", "userPoolClientId": "<UserPoolClientId>" }
+```
+
+Sign-in then runs against the real dev pool, and the post-confirmation trigger
+writes the Account to the real dev table. Until SES is wired (P3), Cognito
+sends the codes itself, capped at 50 emails a day per account.
 
 Nothing seeds a Page yet (that is T12's billing flow), so to see a real render
 put a Page item and a few Links in the dev table by hand — `PK=ACCOUNT#<id>`,

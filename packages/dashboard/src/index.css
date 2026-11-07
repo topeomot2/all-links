@@ -34,3 +34,50 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9em;
 }
+
+form,
+section {
+  display: grid;
+  gap: 0.6rem;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+input {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+}
+
+button {
+  font: inherit;
+  padding: 0.55rem 0.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+  justify-self: start;
+}
+
+[role='alert'] {
+  color: #c62828;
+}

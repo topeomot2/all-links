@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 
@@ -19,12 +20,26 @@ import {
   CacheHeaderBehavior,
   CacheQueryStringBehavior,
   Distribution,
+  FunctionCode,
+  FunctionEventType,
+  FunctionRuntime,
   HttpVersion,
+  OriginRequestCookieBehavior,
+  OriginRequestHeaderBehavior,
+  OriginRequestPolicy,
+  OriginRequestQueryStringBehavior,
   PriceClass,
   SecurityPolicyProtocol,
   ViewerProtocolPolicy,
+  Function as CloudFrontFunction,
 } from 'aws-cdk-lib/aws-cloudfront';
-import { FunctionUrlOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { FunctionUrlOrigin, S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import {
+  AccountRecovery,
+  FeaturePlan,
+  UserPool,
+  UserPoolClient,
+} from 'aws-cdk-lib/aws-cognito';
 import {
   AttributeType,
   BillingMode,
@@ -33,15 +48,33 @@ import {
   type TableProps,
 } from 'aws-cdk-lib/aws-dynamodb';
 import { Architecture, FunctionUrlAuthType, Runtime } from 'aws-cdk-lib/aws-lambda';
-import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
+import {
+  NodejsFunction,
+  OutputFormat,
+  type BundlingOptions,
+  type NodejsFunctionProps,
+} from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { HttpsRedirect } from 'aws-cdk-lib/aws-route53-patterns';
 import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
+import { AUTH_HEADER, DASHBOARD_PATH } from '@all-links/core';
 import type { Construct } from 'constructs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../..');
+
+/** The dashboard's Vite build. `npm run build:dashboard` must run before a deploy. */
+const dashboardDist = path.join(repoRoot, 'packages/dashboard/dist');
+/**
+ * Stands in for the build when it is absent, so `cdk synth` and the infra
+ * tests need no frontend build. A deploy must not ship it: the deploy
+ * workflow passes `-c requireDashboardBuild=true`, which turns this into an
+ * error.
+ */
+const dashboardPlaceholder = path.join(here, '../assets/dashboard-placeholder');
 
 export type Stage = 'dev' | 'prod';
 
@@ -83,18 +116,26 @@ export interface AllLinksStackProps extends StackProps {
    * into an unbounded bill (ADR-0010). Sizing is P9 on the pre-build checklist.
    */
   rendererReservedConcurrency: number;
+  /** The same floor for the api Lambda (ADR-0010). */
+  apiReservedConcurrency: number;
+  /**
+   * Fail synth if the dashboard has not been built, rather than deploying the
+   * placeholder shell. Set by the deploy workflow.
+   */
+  requireDashboardBuild?: boolean | undefined;
 }
 
 /**
  * Everything the product runs on, in one stack per stage.
  *
- * T1 builds the walking skeleton: the table, the renderer, and one CloudFront
- * distribution whose default behavior reaches the renderer's Function URL
- * through Origin Access Control. The api, counter and dashboard origins arrive
- * with the tickets that need them.
+ * One CloudFront distribution fronts everything: the renderer on the default
+ * behavior, the api on `/api/*`, and the dashboard SPA from S3 on `/app/*` —
+ * each Lambda through Origin Access Control, the bucket through its own. The
+ * counter origin arrives with T5.
  */
 export class AllLinksStack extends Stack {
   readonly table: Table;
+  readonly userPool: UserPool;
   readonly distributionDomainName: string;
   /** `https://<domainName>` — what this stage calls itself in a URL. */
   readonly siteOrigin: string;
@@ -139,11 +180,34 @@ export class AllLinksStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    const renderer = new NodejsFunction(this, 'Renderer', {
-      entry: path.join(repoRoot, 'packages/renderer/src/handler.ts'),
+    // Every Lambda is bundled the same way; only entry, env and limits differ.
+    const bundling: BundlingOptions = {
+      format: OutputFormat.ESM,
+      target: 'node22',
+      minify: true,
+      sourceMap: true,
+      sourcesContent: false,
+      tsconfig: path.join(repoRoot, 'tsconfig.json'),
+      mainFields: ['module', 'main'],
+      // CDK would otherwise leave `@aws-sdk/*` external and trust whatever
+      // the managed runtime ships. Bundling it means the DynamoDB client a
+      // handler is tested against is the one it runs on, and a runtime
+      // refresh cannot change the data path underneath a deployed Lambda.
+      bundleAwsSDK: true,
+    };
+    const lambdaDefaults: Partial<NodejsFunctionProps> = {
       handler: 'handler',
       runtime: Runtime.NODEJS_22_X,
       architecture: Architecture.ARM_64,
+      projectRoot: repoRoot,
+      depsLockFilePath: path.join(repoRoot, 'package-lock.json'),
+      bundling,
+    };
+    const logRetention = isProd ? RetentionDays.ONE_MONTH : RetentionDays.ONE_WEEK;
+
+    const renderer = new NodejsFunction(this, 'Renderer', {
+      ...lambdaDefaults,
+      entry: path.join(repoRoot, 'packages/renderer/src/handler.ts'),
       memorySize: 512,
       timeout: Duration.seconds(10),
       reservedConcurrentExecutions: props.rendererReservedConcurrency,
@@ -160,22 +224,6 @@ export class AllLinksStack extends Stack {
         BASE_DOMAIN: props.baseDomain,
         NODE_OPTIONS: '--enable-source-maps',
       },
-      projectRoot: repoRoot,
-      depsLockFilePath: path.join(repoRoot, 'package-lock.json'),
-      bundling: {
-        format: OutputFormat.ESM,
-        target: 'node22',
-        minify: true,
-        sourceMap: true,
-        sourcesContent: false,
-        tsconfig: path.join(repoRoot, 'tsconfig.json'),
-        mainFields: ['module', 'main'],
-        // CDK would otherwise leave `@aws-sdk/*` external and trust whatever
-        // the managed runtime ships. Bundling it means the DynamoDB client the
-        // renderer is tested against is the one it runs on, and a runtime
-        // refresh cannot change the read path underneath a deployed Lambda.
-        bundleAwsSDK: true,
-      },
     });
 
     // The renderer's whole job is the one GSI1 query (ADR-0003). Read only —
@@ -187,6 +235,107 @@ export class AllLinksStack extends Stack {
     const rendererUrl = renderer.addFunctionUrl({
       authType: FunctionUrlAuthType.AWS_IAM,
     });
+
+    // ---- Auth ------------------------------------------------------------
+    // Passwordless email OTP on Essentials — no floor fee, and auth MAU equals
+    // paying Accounts (ADR-0005). The post-confirmation trigger writes the
+    // Account the moment an email is verified.
+    const postConfirmation = new NodejsFunction(this, 'PostConfirmation', {
+      ...lambdaDefaults,
+      entry: path.join(repoRoot, 'packages/api/src/post-confirmation.ts'),
+      memorySize: 256,
+      timeout: Duration.seconds(5),
+      logGroup: new LogGroup(this, 'PostConfirmationLogs', {
+        retention: logRetention,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      environment: {
+        STAGE: stage,
+        TABLE_NAME: this.table.tableName,
+        NODE_OPTIONS: '--enable-source-maps',
+      },
+    });
+    // One conditional Put of the Account item, and nothing else.
+    this.table.grant(postConfirmation, 'dynamodb:PutItem');
+
+    this.userPool = new UserPool(this, 'UserPool', {
+      featurePlan: FeaturePlan.ESSENTIALS,
+      selfSignUpEnabled: true,
+      // The email *is* the sign-in name; Cognito generates the `sub` that
+      // becomes the accountId (ADR-0005).
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      // The sign-up code is the first sign-in for a new Account, so it reads
+      // like one rather than like "verify your account".
+      userVerification: {
+        emailSubject: 'Your All-Links sign-in code',
+        emailBody: 'Your All-Links sign-in code is {####}. It expires in 24 hours.',
+      },
+      standardAttributes: { email: { required: true, mutable: true } },
+      // Cognito insists a password factor stays allowed at the pool level; no
+      // client flow here ever offers one, and sign-up is passwordless.
+      signInPolicy: { allowedFirstAuthFactors: { password: true, emailOtp: true } },
+      // Nothing to recover: there is no password.
+      accountRecovery: AccountRecovery.NONE,
+      lambdaTriggers: { postConfirmation },
+      deletionProtection: isProd,
+      removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
+
+    const userPoolClient = new UserPoolClient(this, 'DashboardClient', {
+      userPool: this.userPool,
+      // A public SPA client: no secret, and only the choice-based USER_AUTH
+      // flow that carries EMAIL_OTP (plus refresh, which is always on).
+      generateSecret: false,
+      authFlows: { user: true },
+      // No hosted UI and no redirects: CDK otherwise enables the implicit and
+      // code grants against a placeholder callback URL.
+      disableOAuth: true,
+      // Long refresh so an Account rarely re-OTPs (ADR-0005); short access
+      // tokens so a revoked session dies within the hour.
+      refreshTokenValidity: Duration.days(60),
+      accessTokenValidity: Duration.hours(1),
+      idTokenValidity: Duration.hours(1),
+      enableTokenRevocation: true,
+      preventUserExistenceErrors: true,
+    });
+
+    // ---- API -------------------------------------------------------------
+    const api = new NodejsFunction(this, 'Api', {
+      ...lambdaDefaults,
+      entry: path.join(repoRoot, 'packages/api/src/handler.ts'),
+      memorySize: 512,
+      timeout: Duration.seconds(10),
+      reservedConcurrentExecutions: props.apiReservedConcurrency,
+      logGroup: new LogGroup(this, 'ApiLogs', {
+        retention: logRetention,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      environment: {
+        STAGE: stage,
+        TABLE_NAME: this.table.tableName,
+        // The JWT is verified in process against this pool's JWKS (ADR-0006).
+        USER_POOL_ID: this.userPool.userPoolId,
+        USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+        NODE_OPTIONS: '--enable-source-maps',
+      },
+    });
+    // Every write path is the api's — CRUD, claim, billing (ADR-0003).
+    this.table.grantReadWriteData(api);
+
+    const apiUrl = api.addFunctionUrl({ authType: FunctionUrlAuthType.AWS_IAM });
+
+    // ---- Dashboard -------------------------------------------------------
+    // Private bucket, read only by this distribution over OAC (ADR-0006).
+    const dashboardBucket = new Bucket(this, 'DashboardBucket', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      // Every object is a build output; the source of truth is the repo.
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+    const dashboardOrigin = S3BucketOrigin.withOriginAccessControl(dashboardBucket);
 
     // ---- Edge ------------------------------------------------------------
     // No cookies in the cache key: a dashboard session can never fragment the
@@ -222,6 +371,52 @@ export class AllLinksStack extends Stack {
         })
       : undefined;
 
+    // The api forwards exactly what it reads: the token header, the payload
+    // hash OAC needs for a signed POST/PUT body, and the content type. No
+    // cookies, and never `Host` — a Function URL rejects any but its own.
+    const apiOriginRequestPolicy = new OriginRequestPolicy(this, 'ApiOriginRequestPolicy', {
+      comment: 'api — token header and body hash, no cookies, no Host',
+      cookieBehavior: OriginRequestCookieBehavior.none(),
+      headerBehavior: OriginRequestHeaderBehavior.allowList(
+        AUTH_HEADER,
+        'content-type',
+        'x-amz-content-sha256',
+      ),
+      queryStringBehavior: OriginRequestQueryStringBehavior.all(),
+    });
+
+    // Hashed assets are immutable, so the edge may keep them as long as the
+    // objects' own `Cache-Control` says — a year (ADR-0006).
+    const dashboardAssetsCachePolicy = new CachePolicy(this, 'DashboardAssetsCachePolicy', {
+      comment: 'Dashboard hashed assets — immutable, one year',
+      cookieBehavior: CacheCookieBehavior.none(),
+      headerBehavior: CacheHeaderBehavior.none(),
+      queryStringBehavior: CacheQueryStringBehavior.none(),
+      minTtl: Duration.days(365),
+      defaultTtl: Duration.days(365),
+      maxTtl: Duration.days(365),
+      enableAcceptEncodingGzip: true,
+      enableAcceptEncodingBrotli: true,
+    });
+
+    // The SPA owns every path under `/app/`: anything that is not a file is
+    // the shell, so a deep link or a reload lands on index.html, not an S3 403.
+    const spaRewrite = new CloudFrontFunction(this, 'DashboardSpaRewrite', {
+      comment: 'Serve the dashboard shell for any /app/ path that is not a file',
+      runtime: FunctionRuntime.JS_2_0,
+      code: FunctionCode.fromInline(
+        [
+          'function handler(event) {',
+          '  var request = event.request;',
+          '  if (!/\\.[A-Za-z0-9]+$/.test(request.uri)) {',
+          `    request.uri = '${DASHBOARD_PATH}index.html';`,
+          '  }',
+          '  return request;',
+          '}',
+        ].join('\n'),
+      ),
+    });
+
     const distribution = new Distribution(this, 'Distribution', {
       comment: `all-links ${stage}`,
       // `www` is deliberately not among them: an alias here would force `Host`
@@ -237,12 +432,91 @@ export class AllLinksStack extends Stack {
         cachePolicy: pageCachePolicy,
         compress: true,
       },
+      additionalBehaviors: {
+        // Per-Account, never cached. The JWT rides in its own header because
+        // OAC's SigV4 signature occupies `Authorization` (see AUTH_HEADER).
+        '/api/*': {
+          origin: FunctionUrlOrigin.withOriginAccessControl(apiUrl),
+          viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
+          allowedMethods: AllowedMethods.ALLOW_ALL,
+          cachePolicy: CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: apiOriginRequestPolicy,
+          compress: true,
+        },
+        // More specific than `/app/*`, so CloudFront matches it first.
+        '/app/assets/*': {
+          origin: dashboardOrigin,
+          viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
+          cachePolicy: dashboardAssetsCachePolicy,
+          compress: true,
+        },
+        // The shell and its runtime config: `no-store`, so a deploy is live on
+        // the next load and needs no invalidation (ADR-0006).
+        '/app/*': {
+          origin: dashboardOrigin,
+          viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
+          cachePolicy: CachePolicy.CACHING_DISABLED,
+          compress: true,
+          functionAssociations: [
+            { function: spaRewrite, eventType: FunctionEventType.VIEWER_REQUEST },
+          ],
+        },
+      },
       priceClass: PriceClass.PRICE_CLASS_100,
       httpVersion: HttpVersion.HTTP2_AND_3,
       minimumProtocolVersion: SecurityPolicyProtocol.TLS_V1_2_2021,
     });
 
     this.distributionDomainName = distribution.distributionDomainName;
+
+    // ---- Dashboard deploy ------------------------------------------------
+    const hasBuild = existsSync(path.join(dashboardDist, 'index.html'));
+    if (!hasBuild) {
+      const message =
+        'packages/dashboard/dist is missing — the placeholder shell would be deployed. ' +
+        'Run `npm run build:dashboard` first.';
+      if (props.requireDashboardBuild) {
+        Annotations.of(this).addError(message);
+      } else {
+        Annotations.of(this).addInfoV2('all-links:dashboard-build', message);
+      }
+    }
+    const dashboardSource = hasBuild ? dashboardDist : dashboardPlaceholder;
+    const dashboardPrefix = DASHBOARD_PATH.slice(1); // `app/`
+
+    // Two uploads because the two halves differ in Cache-Control. Neither
+    // prunes: a tab opened before a deploy still references the old hashed
+    // assets, and they must keep resolving.
+    const dashboardAssets = new BucketDeployment(this, 'DashboardAssets', {
+      sources: [Source.asset(path.join(dashboardSource, 'assets'))],
+      destinationBucket: dashboardBucket,
+      destinationKeyPrefix: `${dashboardPrefix}assets/`,
+      cacheControl: [CacheControl.fromString('public, max-age=31536000, immutable')],
+      prune: false,
+    });
+
+    const dashboardShell = new BucketDeployment(this, 'DashboardShell', {
+      sources: [
+        Source.asset(dashboardSource, { exclude: ['assets'] }),
+        // Read at boot, so pool ids reach the SPA without baking them into a
+        // build that would then differ per stage.
+        Source.jsonData('config.json', {
+          region: this.region,
+          userPoolId: this.userPool.userPoolId,
+          userPoolClientId: userPoolClient.userPoolClientId,
+        }),
+      ],
+      destinationBucket: dashboardBucket,
+      destinationKeyPrefix: dashboardPrefix,
+      cacheControl: [CacheControl.noStore()],
+      prune: false,
+    });
+    // The shell is live the instant it lands (`no-store`), so the hashed
+    // assets it names must already be there — otherwise a first load in the
+    // gap between the two uploads 404s on its own script.
+    dashboardShell.node.addDependency(dashboardAssets);
 
     // ---- Names -----------------------------------------------------------
     if (zone && certificate) {
@@ -329,6 +603,12 @@ export class AllLinksStack extends Stack {
       value: rendererUrl.url,
       description: 'Must return 403 when requested directly — OAC signs, IAM enforces',
     });
+    new CfnOutput(this, 'ApiFunctionUrl', {
+      value: apiUrl.url,
+      description: 'Must return 403 when requested directly — OAC signs, IAM enforces',
+    });
+    new CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });
+    new CfnOutput(this, 'UserPoolClientId', { value: userPoolClient.userPoolClientId });
     new CfnOutput(this, 'TableName', { value: this.table.tableName });
   }
 }

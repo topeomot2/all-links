@@ -65,7 +65,9 @@ ADR-0001 deferred "Lambda Function URLs vs API Gateway HTTP API". **Function URL
 - **Not publicly reachable.** A bare `AuthType: NONE` Function URL stays addressable at its `*.lambda-url.*.on.aws` hostname, letting anyone bypass CloudFront caching and any future WAF or rate limiting. OAC closes that.
 - **Consistent with ADR-0004**, which already made the renderer a Function URL.
 
-The Cognito JWT is verified **in-process** with `aws-jwt-verify` (cached JWKS), rather than by an API Gateway JWT authorizer. Inside the api Lambda, **Hono** provides typed routing over the Function URL event — small, dependency-light, and no framework runtime reaches the client.
+The Cognito JWT is verified **in-process** with `aws-jwt-verify` (cached JWKS), rather than by an API Gateway JWT authorizer.
+
+> **Amended at build (T7, #40):** the token travels as `x-authorization: Bearer <jwt>`, not in `Authorization`. OAC signs every origin request to a Function URL with SigV4, and that signature occupies `Authorization` — CloudFront overwrites the viewer's header. The "Bearer, never a cookie" property this ADR relies on is unchanged. Inside the api Lambda, **Hono** provides typed routing over the Function URL event — small, dependency-light, and no framework runtime reaches the client.
 
 ### IaC: AWS CDK (TypeScript)
 
