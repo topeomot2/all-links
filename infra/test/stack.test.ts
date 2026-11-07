@@ -469,12 +469,15 @@ describe('the api (ADR-0006)', () => {
         CookiesConfig: { CookieBehavior: 'none' },
         HeadersConfig: {
           HeaderBehavior: 'whitelist',
-          Headers: Match.arrayWith(['x-authorization', 'x-amz-content-sha256']),
+          Headers: Match.arrayWith(['x-authorization']),
         },
       }),
     });
     const policy = JSON.stringify(dev.findResources('AWS::CloudFront::OriginRequestPolicy'));
     expect(policy.toLowerCase()).not.toContain('"host"');
+    // CloudFront rejects the whole policy at deploy if it names any `x-amz-*`
+    // header — synth accepts it, so only this test catches it before AWS does.
+    expect(policy.toLowerCase()).not.toContain('"x-amz-');
   });
 
   it('is a Function URL locked to IAM like the renderer', () => {

@@ -22,7 +22,7 @@ deploys `dev` only; `prod` is defined but untouched until T17.
 | SPA app client | No secret, `USER_AUTH` + refresh only, 60-day refresh token, 1-hour access token, token revocation on |
 | Post-confirmation Lambda | Writes the Account item (`attribute_not_exists`, so a retry is harmless). Its role may `PutItem` and nothing else |
 | api Lambda + Function URL (`AWS_IAM`) | Hono routing, Cognito JWT verified in process with cached JWKS — **no API Gateway**. Reserved concurrency, like the renderer |
-| `/api/*` behavior | OAC origin, `CachingDisabled`, forwards only `x-authorization`, `content-type`, `x-amz-content-sha256` — no cookies, never `Host` |
+| `/api/*` behavior | OAC origin, `CachingDisabled`, forwards only `x-authorization` and `content-type` — no cookies, never `Host`. (`x-amz-*` names are refused in a policy; OAC passes `x-amz-content-sha256` through itself) |
 | Dashboard bucket | Private, read over S3 OAC. Shell + `config.json` at `app/` with `no-store`; hashed assets at `app/assets/` with `immutable`, one year. Never pruned, so an open tab survives a deploy |
 | `/app/assets/*`, `/app/*` behaviors | Assets cached a year; the shell uncached, with a CloudFront Function serving `index.html` for any non-file path — so a dashboard deploy needs **no invalidation** |
 
