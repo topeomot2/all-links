@@ -46,7 +46,3 @@ export interface MeResponse {
     clickCount: number;
   }[];
 }
-
-export interface ApiError {
-  error: string;
-}

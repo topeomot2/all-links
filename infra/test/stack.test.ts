@@ -530,6 +530,15 @@ describe('the dashboard (ADR-0006)', () => {
     expect(patterns.indexOf('/app/assets/*')).toBeLessThan(patterns.indexOf('/app/*'));
   });
 
+  it('uploads the hashed assets before the shell that references them', () => {
+    const shell = Object.entries(dev.findResources('Custom::CDKBucketDeployment')).find(
+      ([id]) => id.startsWith('DashboardShell'),
+    );
+    const dependsOn: string[] = shell?.[1]?.DependsOn ?? [];
+
+    expect(dependsOn.some((id) => id.startsWith('DashboardAssets'))).toBe(true);
+  });
+
   it('never prunes, so a tab open across a deploy can still load its assets', () => {
     for (const deployment of Object.values(dev.findResources('Custom::CDKBucketDeployment'))) {
       expect(deployment.Properties.Prune).toBe(false);

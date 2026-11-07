@@ -489,7 +489,7 @@ export class AllLinksStack extends Stack {
     // Two uploads because the two halves differ in Cache-Control. Neither
     // prunes: a tab opened before a deploy still references the old hashed
     // assets, and they must keep resolving.
-    new BucketDeployment(this, 'DashboardAssets', {
+    const dashboardAssets = new BucketDeployment(this, 'DashboardAssets', {
       sources: [Source.asset(path.join(dashboardSource, 'assets'))],
       destinationBucket: dashboardBucket,
       destinationKeyPrefix: `${dashboardPrefix}assets/`,
@@ -497,7 +497,7 @@ export class AllLinksStack extends Stack {
       prune: false,
     });
 
-    new BucketDeployment(this, 'DashboardShell', {
+    const dashboardShell = new BucketDeployment(this, 'DashboardShell', {
       sources: [
         Source.asset(dashboardSource, { exclude: ['assets'] }),
         // Read at boot, so pool ids reach the SPA without baking them into a
@@ -513,6 +513,10 @@ export class AllLinksStack extends Stack {
       cacheControl: [CacheControl.noStore()],
       prune: false,
     });
+    // The shell is live the instant it lands (`no-store`), so the hashed
+    // assets it names must already be there — otherwise a first load in the
+    // gap between the two uploads 404s on its own script.
+    dashboardShell.node.addDependency(dashboardAssets);
 
     // ---- Names -----------------------------------------------------------
     if (zone && certificate) {

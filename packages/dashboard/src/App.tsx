@@ -1,7 +1,7 @@
 import type { MeResponse } from '@all-links/core/api-contract';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 
-import { createApi, nextStep, SignedOutError } from './api.js';
+import { checkoutUsername, createApi, nextStep, SignedOutError } from './api.js';
 import { CognitoError, createCognito, submitEmail, type EmailStep } from './cognito.js';
 import type { DashboardConfig } from './config.js';
 import { createSession } from './session.js';
@@ -159,7 +159,16 @@ function SignedIn({ me, onSignOut }: { me: MeResponse; onSignOut: () => Promise<
       {step === 'claim' && <p>Next: choose your username. (Claiming arrives with T9.)</p>}
       {step === 'checkout' && (
         <p>
-          <strong>{me.account.heldUsername}</strong> is held for you. Next: start your trial.
+          {me.page ? (
+            <>
+              <strong>{checkoutUsername(me)}</strong> is not live — your subscription has lapsed.
+              Resubscribe to bring it back.
+            </>
+          ) : (
+            <>
+              <strong>{checkoutUsername(me)}</strong> is held for you. Next: start your trial.
+            </>
+          )}{' '}
           (Checkout arrives with T12.)
         </p>
       )}
@@ -167,7 +176,6 @@ function SignedIn({ me, onSignOut }: { me: MeResponse; onSignOut: () => Promise<
         <>
           <p>
             Your Page: <a href={`/${me.page.username}`}>/{me.page.username}</a>
-            {!me.page.active && ' — not live'}
             {me.page.suspended && ' — suspended'}
           </p>
           <p className="note">

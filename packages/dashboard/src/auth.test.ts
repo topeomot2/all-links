@@ -1,7 +1,7 @@
 import type { MeResponse } from '@all-links/core/api-contract';
 import { describe, expect, it } from 'vitest';
 
-import { createApi, nextStep, SignedOutError } from './api.js';
+import { checkoutUsername, createApi, nextStep, SignedOutError } from './api.js';
 import { CognitoError, createCognito, submitEmail, type Cognito } from './cognito.js';
 import { createSession, tokenExpiry, type Storage } from './session.js';
 
@@ -276,9 +276,20 @@ describe('post-auth routing (spec §6.1)', () => {
     expect(nextStep({ account: { ...account, heldUsername: 'jane' }, links: [] })).toBe('checkout');
   });
 
-  it('sends an Account with a Page to the dashboard', () => {
+  it('sends an active Account to the dashboard', () => {
     expect(nextStep({ account: { ...account, heldUsername: 'jane' }, page, links: [] })).toBe(
       'dashboard',
     );
+  });
+
+  it('sends a suspended but paid Account to the dashboard, to be told so', () => {
+    expect(nextStep({ account, page: { ...page, suspended: true }, links: [] })).toBe('dashboard');
+  });
+
+  it('sends a lapsed Account back to checkout, not the dashboard', () => {
+    const lapsed = { account, page: { ...page, active: false }, links: [] };
+
+    expect(nextStep(lapsed)).toBe('checkout');
+    expect(checkoutUsername(lapsed)).toBe('jane');
   });
 });

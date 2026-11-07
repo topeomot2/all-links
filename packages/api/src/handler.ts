@@ -4,6 +4,7 @@ import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import { handle } from 'hono/aws-lambda';
 
 import { createApp } from './app.js';
+import { required } from './env.js';
 
 /**
  * The `/api/*` Lambda: Hono over a Function URL, reachable only through
@@ -37,11 +38,4 @@ function lambda(): ReturnType<typeof handle> {
   );
 
   return cached;
-}
-
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set — the api cannot run without it`);
-
-  return value;
 }

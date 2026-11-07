@@ -41,14 +41,26 @@ export function createApi(session: Session, fetchImpl: typeof fetch = fetch.bind
 export type Api = ReturnType<typeof createApi>;
 
 /**
- * Where a signed-in Account belongs (spec §6.1). The reclaimed-hold notice
- * needs the claim's own state and arrives with T9; until then a reclaimed
- * hold simply reads as "no username" and lands on the claim.
+ * Where a signed-in Account belongs (spec §6.1), decided on `active` — the
+ * Page's mirrored Subscription state — not on whether a Page exists:
+ *
+ * - active → the dashboard (a suspended Page still lands here, to be told so)
+ * - inactive, holding a Username or a lapsed Page → resume checkout; within
+ *   the 30-day lapse window reactivation is one payment (ADR-0002)
+ * - inactive with neither → the claim
+ *
+ * The reclaimed-hold notice needs the claim's own state and arrives with T9;
+ * until then a reclaimed hold reads as "no Username" and lands on the claim.
  */
 export type NextStep = 'dashboard' | 'claim' | 'checkout';
 
 export function nextStep(me: MeResponse): NextStep {
-  if (me.page) return 'dashboard';
-  if (me.account.heldUsername) return 'checkout';
+  if (me.page?.active) return 'dashboard';
+  if (me.page || me.account.heldUsername) return 'checkout';
   return 'claim';
+}
+
+/** The Username checkout would be for — a held one, or a lapsed Page's. */
+export function checkoutUsername(me: MeResponse): string | undefined {
+  return me.account.heldUsername ?? me.page?.username;
 }

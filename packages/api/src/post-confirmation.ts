@@ -1,6 +1,8 @@
 import { createDynamoAccountStore, type AccountStore } from '@all-links/core';
 import type { PostConfirmationTriggerEvent } from 'aws-lambda';
 
+import { required } from './env.js';
+
 /**
  * Cognito post-confirmation trigger: the moment an email is verified, an
  * Account exists (ADR-0005). `accountId` is the Cognito `sub`; the Account
@@ -27,9 +29,7 @@ export function createPostConfirmation(accounts: () => AccountStore) {
 let store: AccountStore | undefined;
 
 export const handler = createPostConfirmation(() => {
-  const tableName = process.env['TABLE_NAME'];
-  if (!tableName) throw new Error('TABLE_NAME is not set');
-  store ??= createDynamoAccountStore(tableName);
+  store ??= createDynamoAccountStore(required('TABLE_NAME'));
 
   return store;
 });
