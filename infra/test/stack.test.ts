@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs';
+
 import { GSI1_PROJECTED_ATTRIBUTES } from '@all-links/core';
 import { App, Stack } from 'aws-cdk-lib';
-import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Annotations, Match, Template } from 'aws-cdk-lib/assertions';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../lib/app.js';
@@ -8,6 +10,19 @@ import { buildApp } from '../lib/app.js';
 let app: App;
 let dev: Template;
 let prod: Template;
+
+/** The one page distribution's config — dev has no `www` distribution. */
+function distributionConfig(template: Template): any {
+  const distributions = Object.values(template.findResources('AWS::CloudFront::Distribution'));
+  expect(distributions).toHaveLength(1);
+  return distributions[0]?.Properties?.DistributionConfig;
+}
+
+function behavior(template: Template, pattern: string): any {
+  return distributionConfig(template).CacheBehaviors.find(
+    (b: { PathPattern: string }) => b.PathPattern === pattern,
+  );
+}
 
 beforeAll(() => {
   app = buildApp(new App({ context: { alertEmail: 'ops@example.com' } }));
@@ -148,7 +163,9 @@ describe('the renderer function', () => {
     // The public read path is one GSI1 query, so the grant has to cover the
     // index as well as the table itself (ADR-0003).
     const policies = dev.findResources('AWS::IAM::Policy');
-    const actions = JSON.stringify(policies);
+    const renderer = Object.entries(policies).filter(([id]) => id.startsWith('Renderer'));
+    expect(renderer).toHaveLength(1);
+    const actions = JSON.stringify(renderer);
 
     expect(actions).not.toContain('dynamodb:PutItem');
     expect(actions).not.toContain('dynamodb:UpdateItem');
@@ -179,10 +196,16 @@ describe('the renderer function', () => {
 
 describe('the distribution', () => {
   it('sends every path to the renderer through the OAC origin', () => {
+    const config = distributionConfig(dev);
+    const origin = config.Origins.find(
+      (o: { Id: string }) => o.Id === config.DefaultCacheBehavior.TargetOriginId,
+    );
+
+    expect(origin?.OriginAccessControlId).toBeDefined();
+    expect(JSON.stringify(origin)).toContain('RendererFunctionUrl');
     dev.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: Match.objectLike({
         Enabled: true,
-        Origins: [Match.objectLike({ OriginAccessControlId: Match.anyValue() })],
         DefaultCacheBehavior: Match.objectLike({
           ViewerProtocolPolicy: 'redirect-to-https',
           Compress: true,
@@ -273,7 +296,13 @@ describe('the site domain', () => {
 
   it('gives dev no `www` — nobody types www.dev', () => {
     wiredDev.resourceCountIs('AWS::CloudFront::Distribution', 1);
-    wiredDev.resourceCountIs('AWS::S3::Bucket', 0);
+    // The dashboard bucket is the only one, and it is no website.
+    wiredDev.resourceCountIs('AWS::S3::Bucket', 1);
+    wiredDev.resourcePropertiesCountIs(
+      'AWS::S3::Bucket',
+      { WebsiteConfiguration: Match.anyValue() },
+      0,
+    );
   });
 
   it('falls back to the CloudFront hostname when the domain is unconfigured', () => {
@@ -336,5 +365,186 @@ describe('the budget', () => {
     dev.hasResourceProperties('AWS::Budgets::Budget', {
       Budget: Match.objectLike({ BudgetName: Match.absent() }),
     });
+  });
+});
+
+describe('auth (ADR-0005)', () => {
+  it('is a Cognito pool on Essentials with passwordless email OTP', () => {
+    dev.hasResourceProperties('AWS::Cognito::UserPool', {
+      UserPoolTier: 'ESSENTIALS',
+      UsernameAttributes: ['email'],
+      AutoVerifiedAttributes: ['email'],
+      Policies: Match.objectLike({
+        SignInPolicy: { AllowedFirstAuthFactors: Match.arrayWith(['EMAIL_OTP']) },
+      }),
+    });
+  });
+
+  it('has no social identity providers — Google is deferred past v1', () => {
+    dev.resourceCountIs('AWS::Cognito::UserPoolIdentityProvider', 0);
+  });
+
+  it('gives the SPA a secretless client that can only run USER_AUTH', () => {
+    dev.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      GenerateSecret: false,
+      ExplicitAuthFlows: ['ALLOW_USER_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
+      PreventUserExistenceErrors: 'ENABLED',
+    });
+  });
+
+  it('has no hosted UI, OAuth grants or callback URLs', () => {
+    const client = Object.values(dev.findResources('AWS::Cognito::UserPoolClient'))[0];
+
+    expect(client?.Properties?.AllowedOAuthFlows).toBeUndefined();
+    expect(client?.Properties?.CallbackURLs).toBeUndefined();
+  });
+
+  it('keeps a long refresh token so an Account rarely re-OTPs', () => {
+    dev.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      RefreshTokenValidity: 60 * 24 * 60,
+      TokenValidityUnits: Match.objectLike({ RefreshToken: 'minutes' }),
+    });
+  });
+
+  it('creates the Account from a post-confirmation trigger', () => {
+    dev.hasResourceProperties('AWS::Cognito::UserPool', {
+      LambdaConfig: { PostConfirmation: Match.anyValue() },
+    });
+  });
+
+  it('lets the trigger Put an item and nothing more', () => {
+    const policies = Object.entries(dev.findResources('AWS::IAM::Policy')).filter(([id]) =>
+      id.startsWith('PostConfirmation'),
+    );
+
+    expect(policies).toHaveLength(1);
+    expect(policies[0]?.[1]?.Properties?.PolicyDocument?.Statement).toEqual([
+      expect.objectContaining({ Action: 'dynamodb:PutItem', Effect: 'Allow' }),
+    ]);
+  });
+
+  it('protects the prod pool from deletion', () => {
+    prod.hasResource('AWS::Cognito::UserPool', {
+      DeletionPolicy: 'Retain',
+      Properties: Match.objectLike({ DeletionProtection: 'ACTIVE' }),
+    });
+  });
+});
+
+describe('the api (ADR-0006)', () => {
+  it('knows the pool it verifies JWTs against, in process', () => {
+    dev.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: {
+        Variables: Match.objectLike({
+          USER_POOL_ID: Match.anyValue(),
+          USER_POOL_CLIENT_ID: Match.anyValue(),
+          TABLE_NAME: Match.anyValue(),
+        }),
+      },
+      ReservedConcurrentExecutions: Match.anyValue(),
+    });
+  });
+
+  it('has no API Gateway in front of it', () => {
+    dev.resourceCountIs('AWS::ApiGateway::RestApi', 0);
+    dev.resourceCountIs('AWS::ApiGatewayV2::Api', 0);
+  });
+
+  it('is reached on /api/* through an OAC origin, never cached', () => {
+    const api = behavior(dev, '/api/*');
+    const origin = distributionConfig(dev).Origins.find(
+      (o: { Id: string }) => o.Id === api.TargetOriginId,
+    );
+
+    expect(JSON.stringify(origin)).toContain('ApiFunctionUrl');
+    expect(origin.OriginAccessControlId).toBeDefined();
+    // The managed CachingDisabled policy.
+    expect(api.CachePolicyId).toBe('4135ea2d-6df8-44a3-9df3-4b5a84be39ad');
+    expect(api.AllowedMethods).toContain('POST');
+  });
+
+  it('forwards the token header, no cookies, and never Host', () => {
+    dev.hasResourceProperties('AWS::CloudFront::OriginRequestPolicy', {
+      OriginRequestPolicyConfig: Match.objectLike({
+        CookiesConfig: { CookieBehavior: 'none' },
+        HeadersConfig: {
+          HeaderBehavior: 'whitelist',
+          Headers: Match.arrayWith(['x-authorization', 'x-amz-content-sha256']),
+        },
+      }),
+    });
+    const policy = JSON.stringify(dev.findResources('AWS::CloudFront::OriginRequestPolicy'));
+    expect(policy.toLowerCase()).not.toContain('"host"');
+  });
+
+  it('is a Function URL locked to IAM like the renderer', () => {
+    dev.resourcePropertiesCountIs('AWS::Lambda::Url', { AuthType: 'AWS_IAM' }, 2);
+    dev.resourcePropertiesCountIs('AWS::Lambda::Url', { AuthType: 'NONE' }, 0);
+  });
+});
+
+describe('the dashboard (ADR-0006)', () => {
+  it('lives in a private bucket read by CloudFront over OAC', () => {
+    dev.hasResourceProperties('AWS::S3::Bucket', {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+    dev.hasResourceProperties('AWS::CloudFront::OriginAccessControl', {
+      OriginAccessControlConfig: Match.objectLike({ OriginAccessControlOriginType: 's3' }),
+    });
+  });
+
+  it('serves the shell uncached, so a deploy needs no invalidation', () => {
+    const shell = behavior(dev, '/app/*');
+
+    expect(shell.CachePolicyId).toBe('4135ea2d-6df8-44a3-9df3-4b5a84be39ad');
+    expect(shell.FunctionAssociations).toEqual([
+      expect.objectContaining({ EventType: 'viewer-request' }),
+    ]);
+    dev.hasResourceProperties('Custom::CDKBucketDeployment', {
+      DestinationBucketKeyPrefix: 'app/',
+      SystemMetadata: { 'cache-control': 'no-store' },
+    });
+  });
+
+  it('serves hashed assets immutable for a year', () => {
+    expect(behavior(dev, '/app/assets/*')).toBeDefined();
+    dev.hasResourceProperties('AWS::CloudFront::CachePolicy', {
+      CachePolicyConfig: Match.objectLike({ MinTTL: 31536000, DefaultTTL: 31536000 }),
+    });
+    dev.hasResourceProperties('Custom::CDKBucketDeployment', {
+      DestinationBucketKeyPrefix: 'app/assets/',
+      SystemMetadata: { 'cache-control': 'public, max-age=31536000, immutable' },
+    });
+  });
+
+  it('lists /app/assets/* before /app/*, so hashed assets never get the shell', () => {
+    const patterns = distributionConfig(dev).CacheBehaviors.map(
+      (b: { PathPattern: string }) => b.PathPattern,
+    );
+
+    expect(patterns.indexOf('/app/assets/*')).toBeLessThan(patterns.indexOf('/app/*'));
+  });
+
+  it('never prunes, so a tab open across a deploy can still load its assets', () => {
+    for (const deployment of Object.values(dev.findResources('Custom::CDKBucketDeployment'))) {
+      expect(deployment.Properties.Prune).toBe(false);
+    }
+  });
+
+  it('refuses to synth the placeholder shell when a deploy demands the build', () => {
+    // The repo has no committed build, so this holds unless one was just made.
+    const built = existsSync(new URL('../../packages/dashboard/dist/index.html', import.meta.url));
+    const strict = buildApp(new App({ context: { requireDashboardBuild: 'true' } }));
+    const errors = Annotations.fromStack(strict.node.findChild('AllLinks-dev') as never).findError(
+      '*',
+      Match.stringLikeRegexp('dashboard/dist is missing'),
+    );
+
+    expect(errors).toHaveLength(built ? 0 : 1);
   });
 });

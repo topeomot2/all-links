@@ -1,22 +1,47 @@
+import { createDynamoAccountStore } from '@all-links/core';
 import type { APIGatewayProxyStructuredResultV2, LambdaFunctionURLEvent } from 'aws-lambda';
+import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { handle } from 'hono/aws-lambda';
+
+import { createApp } from './app.js';
 
 /**
- * The `/api/*` Lambda: CRUD and billing webhooks, routed with Hono behind a
- * Function URL + OAC (ADR-0006).
- *
- * T1 deploys nothing here — the package exists so `core`, the local dev loop
- * and the workspace layout are in place for T7 onwards. It answers 501 rather
- * than 404 so a misrouted request is unambiguous.
+ * The `/api/*` Lambda: Hono over a Function URL, reachable only through
+ * CloudFront via OAC (ADR-0006).
  */
 export async function handler(
-  _event: LambdaFunctionURLEvent,
+  event: LambdaFunctionURLEvent,
 ): Promise<APIGatewayProxyStructuredResultV2> {
-  return {
-    statusCode: 501,
-    headers: {
-      'content-type': 'application/json',
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify({ error: 'not_implemented' }),
-  };
+  // A Function URL event is payload format 2.0 — the shape Hono's API Gateway
+  // v2 adapter reads — it is just typed separately in `@types/aws-lambda`.
+  return (await lambda()(event as never)) as APIGatewayProxyStructuredResultV2;
+}
+
+let cached: ReturnType<typeof handle> | undefined;
+
+/**
+ * Built once per container: the verifier caches Cognito's JWKS in memory, and
+ * the Document client keeps its connection pool, across warm invocations.
+ * Lazy so importing this file — from the dev server or a test — needs no env.
+ */
+function lambda(): ReturnType<typeof handle> {
+  cached ??= handle(
+    createApp({
+      verifier: CognitoJwtVerifier.create({
+        userPoolId: required('USER_POOL_ID'),
+        clientId: required('USER_POOL_CLIENT_ID'),
+        tokenUse: 'access',
+      }),
+      accounts: createDynamoAccountStore(required('TABLE_NAME')),
+    }),
+  );
+
+  return cached;
+}
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set — the api cannot run without it`);
+
+  return value;
 }

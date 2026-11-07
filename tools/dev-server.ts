@@ -132,4 +132,8 @@ server.listen(PORT, () => {
     console.log('  credentials — the renderer reads every Page from it. Without it,');
     console.log('  any request for a Page is a 500. There is no offline mode.');
   }
+  if (!process.env['USER_POOL_ID'] || !process.env['USER_POOL_CLIENT_ID']) {
+    console.log('\n  USER_POOL_ID / USER_POOL_CLIENT_ID are unset. Copy them from the dev');
+    console.log("  stack's outputs — the api verifies every token against that pool.");
+  }
 });

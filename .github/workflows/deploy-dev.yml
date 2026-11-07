@@ -36,6 +36,11 @@ jobs:
       - name: Test
         run: npm test
 
+      # Synth reads packages/dashboard/dist; without it the stack would ship
+      # the placeholder shell, which requireDashboardBuild turns into an error.
+      - name: Build the dashboard
+        run: npm run build:dashboard
+
       - name: Assume the deploy role
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -50,6 +55,7 @@ jobs:
           --require-approval never
           -c alertEmail=${{ vars.ALERT_EMAIL }}
           -c region=${{ vars.AWS_REGION }}
+          -c requireDashboardBuild=true
 
       - name: Verify the deployed stack
         run: ./tools/verify-deployment.sh AllLinks-dev

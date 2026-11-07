@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./api-contract": "./src/api-contract.ts"
   },
   "types": "./src/index.ts",
   "dependencies": {

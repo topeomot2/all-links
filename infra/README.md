@@ -14,6 +14,31 @@ deploys `dev` only; `prod` is defined but untouched until T17.
 | One CloudFront distribution | Default behavior → renderer over OAC, **no cookies** in the cache key, no `DefaultRootObject` so `/` reaches the renderer (ADR-0013) |
 | AWS Budgets alarm | Mandatory per ADR-0001 — the backstop on accepted egress risk |
 
+## What T7 adds
+
+| Resource | Why it looks like that |
+|---|---|
+| Cognito user pool, **Essentials** | Passwordless email OTP, no floor fee (ADR-0005). Email is the sign-in name; the `sub` is the accountId. No identity providers — Google is post-v1 |
+| SPA app client | No secret, `USER_AUTH` + refresh only, 60-day refresh token, 1-hour access token, token revocation on |
+| Post-confirmation Lambda | Writes the Account item (`attribute_not_exists`, so a retry is harmless). Its role may `PutItem` and nothing else |
+| api Lambda + Function URL (`AWS_IAM`) | Hono routing, Cognito JWT verified in process with cached JWKS — **no API Gateway**. Reserved concurrency, like the renderer |
+| `/api/*` behavior | OAC origin, `CachingDisabled`, forwards only `x-authorization`, `content-type`, `x-amz-content-sha256` — no cookies, never `Host` |
+| Dashboard bucket | Private, read over S3 OAC. Shell + `config.json` at `app/` with `no-store`; hashed assets at `app/assets/` with `immutable`, one year. Never pruned, so an open tab survives a deploy |
+| `/app/assets/*`, `/app/*` behaviors | Assets cached a year; the shell uncached, with a CloudFront Function serving `index.html` for any non-file path — so a dashboard deploy needs **no invalidation** |
+
+**The token is in `x-authorization`, not `Authorization`.** OAC signs every
+origin request with SigV4, and that signature *is* the `Authorization` header —
+CloudFront overwrites the viewer's. The dashboard therefore sends
+`x-authorization: Bearer <access token>`. Still a header and never a cookie, so
+ADR-0004's no-cookie public cache holds. A future `POST`/`PUT` must also send
+`x-amz-content-sha256` (the body's SHA-256): Lambda rejects unsigned payloads
+behind OAC.
+
+**Deploys need the dashboard built first.** Synth reads
+`packages/dashboard/dist`; without it the stack would ship a placeholder shell.
+That is fine for `synth` and the tests, and an error once
+`-c requireDashboardBuild=true` is passed, as the deploy workflow does.
+
 Freshness is the renderer's, not the distribution's: the cache policy sets
 `MinTTL`/`DefaultTTL` to 0, so the origin's `Cache-Control` decides. That is
 what lets one behavior serve `s-maxage=60` Pages and `s-maxage=300` static
@@ -24,7 +49,8 @@ routes (ADR-0013).
 ```bash
 export AWS_PROFILE=…                       # a real account
 npx cdk bootstrap                          # once per account/region
-npm run deploy:dev -w @all-links/infra -- -c alertEmail=you@example.com
+npm run build:dashboard
+npm run deploy:dev -w @all-links/infra -- -c alertEmail=you@example.com -c requireDashboardBuild=true
 ./tools/verify-deployment.sh AllLinks-dev
 ```
 
@@ -111,10 +137,11 @@ Launch checklist, in order:
 4. Check a live Page in Meta's sharing debugger (spec §10 item 13) — the first
    moment `og:url` and `og:image` can be verified against a real hostname.
 
-`tools/verify-deployment.sh` checks the two things only a deployed stack can
-answer: the site returns renderer HTML, repeat requests come from the CloudFront
-cache (`HIT` on `/`, a rising `age` on a 404), and the Function URL returns
-**403** when hit directly.
+`tools/verify-deployment.sh` checks what only a deployed stack can answer: the
+site returns renderer HTML, repeat requests come from the CloudFront cache
+(`HIT` on `/`, a rising `age` on a 404), both Function URLs return **403** when
+hit directly, `/api/me` refuses a request with no token, and the dashboard
+shell and a deep link both answer `no-store`.
 
 ## What a human identity needs
 
@@ -259,6 +286,6 @@ actually performs the deploy, and to read the stack outputs for
 
 ## Not here yet
 
-The `/api/*`, `/px`, `/r/*`, `/i/*` and `/app/*` behaviors, the SPA bucket and
-the Cognito user pool all arrive with the tickets that need them. T1 is the
-walking skeleton: one origin, one behavior, one path through the whole system.
+The `/px`, `/r/*` and `/i/*` behaviors arrive with the tickets that need them
+(T5, T6). SES for the OTP mail is P3; until then Cognito sends it, capped at 50
+a day.

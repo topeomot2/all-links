@@ -6,3 +6,6 @@ cdk.out/
 .env
 .env.*
 !.env.example
+
+# Local dashboard runtime config — copy from the dev stack outputs.
+packages/dashboard/public/config.json

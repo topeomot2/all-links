@@ -44,13 +44,14 @@ const resource = (resource: StaticResource): StaticRoute => ({ kind: 'resource',
 const redirect = (location: string): StaticRoute => ({ kind: 'redirect', location });
 
 /**
- * Exact paths, lowercase, in ADR-0013's order. Three pages, two files, three
+ * Exact paths, lowercase, in ADR-0013's order. Three pages, two files, four
  * redirects — and nothing else: `about`, `blog`, `docs` and `help` are pages
  * nobody has written, so they stay reserved names with no route behind them.
  *
  * The redirects are here because a name a visitor typed on purpose deserves a
- * destination. `/login` and `/signup` are the one funnel's obvious guesses;
- * `/pricing` is content that exists but is not a page of its own.
+ * destination. `/app` is the dashboard without its slash; `/login` and
+ * `/signup` are the one funnel's obvious guesses; `/pricing` is content that
+ * exists but is not a page of its own.
  */
 export const STATIC_ROUTES: ReadonlyMap<string, StaticRoute> = new Map<string, StaticRoute>([
   ['/', resource('landing')],
@@ -58,6 +59,9 @@ export const STATIC_ROUTES: ReadonlyMap<string, StaticRoute> = new Map<string, S
   ['/privacy', resource('privacy')],
   ['/robots.txt', resource('robots')],
   [BRAND_CARD_PATH, resource('brand-card')],
+  // `/app/` itself is an edge behavior to S3; only the slashless spelling
+  // ever reaches the renderer.
+  ['/app', redirect(DASHBOARD_PATH)],
   ['/login', redirect(DASHBOARD_PATH)],
   ['/signup', redirect(DASHBOARD_PATH)],
   ['/pricing', redirect(PRICING_ANCHOR)],
