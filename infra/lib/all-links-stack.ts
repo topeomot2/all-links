@@ -371,17 +371,15 @@ export class AllLinksStack extends Stack {
         })
       : undefined;
 
-    // The api forwards exactly what it reads: the token header, the payload
-    // hash OAC needs for a signed POST/PUT body, and the content type. No
-    // cookies, and never `Host` — a Function URL rejects any but its own.
+    // The api forwards exactly what it reads: the token header and the
+    // content type. No cookies, and never `Host` — a Function URL rejects any
+    // but its own. `x-amz-content-sha256` (the body hash a signed POST/PUT
+    // needs) is deliberately absent: CloudFront refuses `x-amz-*` names in a
+    // policy, and OAC carries the viewer's into its signature by itself.
     const apiOriginRequestPolicy = new OriginRequestPolicy(this, 'ApiOriginRequestPolicy', {
-      comment: 'api — token header and body hash, no cookies, no Host',
+      comment: 'api — token header, no cookies, no Host',
       cookieBehavior: OriginRequestCookieBehavior.none(),
-      headerBehavior: OriginRequestHeaderBehavior.allowList(
-        AUTH_HEADER,
-        'content-type',
-        'x-amz-content-sha256',
-      ),
+      headerBehavior: OriginRequestHeaderBehavior.allowList(AUTH_HEADER, 'content-type'),
       queryStringBehavior: OriginRequestQueryStringBehavior.all(),
     });
 
